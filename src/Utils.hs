@@ -1,5 +1,4 @@
 module Utils where
-import Data.Maybe
 import Data.Word
 import Data.Char
 
@@ -19,4 +18,9 @@ charsToInt a b = ord a * 2 ^ 8 + ord b
 inbetween :: a -> [a] -> [a]
 inbetween _ [x] =  [x]
 inbetween i (x : xs) = x : i : (inbetween i xs)
+
+toWord32 :: Word8 -> Word32
+toWord32 = fromIntegral
+
+powers x = map (x^) [0..]
 
