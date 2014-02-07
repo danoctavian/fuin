@@ -1,0 +1,12 @@
+Name:                torrentcamo
+Version:             0.0
+Description:         N/A
+License:             GPL
+License-file:        LICENSE
+Author:              ursar 
+Maintainer:          danoctavian91@gmail.com 
+Build-Type:          Simple
+Cabal-Version:       >=1.2
+Executable torrentcamo
+  Main-is:           Main.hs
+  Build-Depends:     base >= 4.3.1.0 && < 5 , unix , MaybeT , network , bytestring , data-default-class , haxy , HTTP , mtl , directory , filepath , transformers , attoparsec , conduit , strict , splice
