@@ -88,12 +88,17 @@ handleConnection (Connection cmd atyp (addr, bsAddr) port) clientSock config = d
   serverSock <- socket (addrFamily serverAddr) Stream defaultProtocol
   connect serverSock (addrAddress serverAddr) 
 
+{-
+  -- fast proxying solution. problem is it does not allow me hook into the packets
   clientH <- socketToHandle clientSock ReadWriteMode
   serverH <- socketToHandle serverSock ReadWriteMode
   let serverSide = (serverSock, Just serverH)
   let clientSide = (clientSock, Just clientH)
   void . forkIO   $ splice msgSize serverSide clientSide 
   splice msgSize clientSide serverSide 
+-}
+  forkIO $ forwardPackets clientSock serverSock
+  forwardPackets serverSock clientSock
   return ()
 
 getMessage conn parse (validate, errMsg) = do
@@ -106,8 +111,8 @@ getMessage conn parse (validate, errMsg) = do
   return hs
 
 forwardPackets src dst = do
-  package <- SysIOStrict.hGetContents src
-  DatB.hPutStr dst (Ch8.pack package)
+  package <- NBS.recv src msgSize
+  NBS.send dst package
   forwardPackets src dst
 
 -- only support TCP connect. fail otherwise
