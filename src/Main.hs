@@ -28,10 +28,13 @@ import System.IO
 import System.IO.Strict as SysIOStrict
 import Network.Socket.Splice
 import Data.Word
+import Prelude as P
+--import WireProtocol
 
 import Utils
 
-data Config = Config {foo :: Int}
+type PacketHandler = ByteString -> IO (ByteString)
+data Config = Config {getPort :: PortID, handleIncoming :: PacketHandler, handleOutgoing :: PacketHandler}
 
 type Method = Char
 data ClientHandshake = CH Char [Method]
@@ -45,16 +48,28 @@ data Connection = Connection CMD ATYP (String, ByteString) Int -- cmd, atyp, add
   deriving Show
 
 msgSize = 1024 -- magical? may need more
+-- for bittorrent 20 + 1024 * 1024
+packSize = 20 + 1024 * 1024
 
 cmdCodes = ['\1', '\2', '\3']
 atypCodes = ['\1', '\3', '\4']
 toCMD c = lookup c $ L.zip cmdCodes [CONNECT, BIND, UDPASSOCIATE]
 toATYP a = lookup a $ L.zip atypCodes [IPV4, DOMAINNAME, IPV6]
 
+
+runServer :: Config -> IO ()
+runServer config = withSocketsDo $  do
+  P.putStrLn "Starting server"
+  sock <- listenOn $ (getPort config)
+  loop config sock
+
+justPrint  flag bs = do
+  P.putStrLn flag
+  P.putStrLn $ show bs
+  return bs
+
 main = withSocketsDo $ do
-  Prelude.putStrLn "Starting server"
-  sock <- listenOn $ PortNumber 5004
-  loop (Config 0) sock
+  runServer (Config  (PortNumber 1080) (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!"))
 
 loop config sock = do
   (conn, _) <- accept sock
@@ -65,22 +80,22 @@ loop config sock = do
 doHandshake :: (Data.String.IsString e, MonadIO m, MonadError e m, Functor m) => Socket -> m Connection
 doHandshake conn = do
   hs <- getMessage conn parseHandshake (isValidHandshake, "Invalid handshake")
-  liftIO $ Prelude.putStrLn $ show hs
   liftIO $ NBS.sendAll conn "\5\0"
   connRequest <- getMessage conn parseConnectionReq (isValidConnectionReq, "Invalid connection request")
-  liftIO $ Prelude.putStrLn $ show connRequest
+--  liftIO $ P.putStrLn $ show connRequest
   return connRequest
 
 handleReq config conn = do
   eitherConnRequest <- runErrorT $ (doHandshake conn)
   case eitherConnRequest of
-    Left err -> Prelude.putStrLn err 
+    Left err -> P.putStrLn err 
     Right c -> handleConnection c conn config
-  Prelude.putStrLn "done showing"
+  -- TODO: add code for catching exceptions when connections is broken
+  P.putStrLn "done showing"
   Network.Socket.sClose conn
 
 handleConnection (Connection cmd atyp (addr, bsAddr) port) clientSock config = do
-  Prelude.putStrLn "handling connection"
+  P.putStrLn "handling connection"
   NBS.send clientSock "\5\0\0\1\0\0 01c" --this is magical as fuck...
 
   addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show port) 
@@ -89,7 +104,8 @@ handleConnection (Connection cmd atyp (addr, bsAddr) port) clientSock config = d
   connect serverSock (addrAddress serverAddr) 
 
 {-
-  -- fast proxying solution. problem is it does not allow me hook into the packets
+  -- fast proxying solution. problem is it does not allow place a hook
+  -- and tamper with the packets
   clientH <- socketToHandle clientSock ReadWriteMode
   serverH <- socketToHandle serverSock ReadWriteMode
   let serverSide = (serverSock, Just serverH)
@@ -97,23 +113,25 @@ handleConnection (Connection cmd atyp (addr, bsAddr) port) clientSock config = d
   void . forkIO   $ splice msgSize serverSide clientSide 
   splice msgSize clientSide serverSide 
 -}
-  forkIO $ forwardPackets clientSock serverSock
-  forwardPackets serverSock clientSock
+  forkIO $ forwardPackets clientSock serverSock (handleOutgoing config)
+  forwardPackets serverSock clientSock (handleIncoming config)
   return ()
 
 getMessage conn parse (validate, errMsg) = do
   tcpMsg <- liftIO $ NBS.recv conn msgSize
-  liftIO $ Prelude.putStrLn $ ("message " ++  (Ch8.unpack tcpMsg) ++ "|")
   handshakeParse <- return (parseOnly parse tcpMsg)
   hs <- case handshakeParse of
           Left err -> throwError "failed parse "
           Right hs -> if (validate hs) then return hs else throwError errMsg 
   return hs
 
-forwardPackets src dst = do
-  package <- NBS.recv src msgSize
-  NBS.send dst package
-  forwardPackets src dst
+-- this is wrong - when connection is broken what happens to this loop?
+-- now it just goes on forever...
+forwardPackets src dst  trans = do
+  package <- NBS.recv src packSize
+  transPackage <- trans package
+  NBS.send dst transPackage
+  forwardPackets src dst trans
 
 -- only support TCP connect. fail otherwise
 parseConnectionReq :: Parser Connection

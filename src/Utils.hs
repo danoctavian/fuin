@@ -1,6 +1,8 @@
 module Utils where
 import Data.Word
 import Data.Char
+import Data.ByteString.Char8 as BSC
+import Prelude as P
 
 if' x a b = if x then a else b
 
@@ -22,5 +24,16 @@ inbetween i (x : xs) = x : i : (inbetween i xs)
 toWord32 :: Word8 -> Word32
 toWord32 = fromIntegral
 
-powers x = map (x^) [0..]
+powers x = P.map (x^) [0..]
+
+-- normal bytestring utils
+popLast bs = fst $ BSC.splitAt (BSC.length bs - 1) bs
+
+splitFor :: BSC.ByteString -> BSC.ByteString -> [BSC.ByteString]
+splitFor delim str = if' (rest == BSC.pack "") ([chunk])
+                        (chunk : (splitFor delim $ BSC.drop dL rest))
+  where
+    (chunk, rest) = BSC.breakSubstring delim str
+    dL = BSC.length delim
+
 

@@ -1,0 +1,2 @@
+# http://www.haskell.org/ghc/docs/7.0.1/html/users_guide/packages.html
+ghci -hide-package monads-tf $1
