@@ -5,7 +5,6 @@ import Data.ByteString.Char8 as BSC
 import Prelude as P
 
 if' x a b = if x then a else b
-
 fromRight (Right x) = x
 
 toBool (Just x) = True

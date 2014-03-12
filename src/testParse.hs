@@ -10,7 +10,7 @@ import Data.Serialize.Put
 import Data.Serialize.Get
 import Data.Either
 --import  Data.ByteString.Lazy.Char8 as BSL
-
+  
 import  Data.ByteString.Char8 as BSL
 
 data Packet = Packet ByteString ByteString

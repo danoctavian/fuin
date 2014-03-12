@@ -1,175 +1,100 @@
 {-# LANGUAGE ForeignFunctionInterface #-} 
 {-# LANGUAGE OverloadedStrings #-}
 
-import Control.Monad.IO.Class
-import Data.ByteString.Char8 as Ch8
-import Data.ByteString as DatB
-import System.FilePath.Posix
-import System.Environment
-import System.Directory
-import Network hiding (accept)
-import Network.Socket
-import Network.Socket.ByteString.Lazy as NBSL
-import Control.Concurrent
-import Data.List as L
-import Control.Monad.Maybe
-import Control.Monad.Error
-import Control.Monad.Error.Class
-import Control.Monad as CM
-import qualified Data.ByteString.Lazy as BSL
-import Data.Attoparsec 
-import Data.Attoparsec.Char8 as DAC
-import Network.Socket.ByteString as NBS
-import Control.Monad.Error
-import Data.Char
-import Data.String
-import Data.Maybe
-import System.IO
-import System.IO.Strict as SysIOStrict
-import Network.Socket.Splice
-import Data.Word
 import Prelude as P
---import WireProtocol
-
-import Utils
-
-type PacketHandler = ByteString -> IO (ByteString)
-data Config = Config {getPort :: PortID, handleIncoming :: PacketHandler, handleOutgoing :: PacketHandler}
-
-type Method = Char
-data ClientHandshake = CH Char [Method]
-  deriving Show
-
-data CMD = CONNECT | BIND | UDPASSOCIATE -- command
-  deriving Show
-data ATYP = IPV4 | DOMAINNAME | IPV6 -- address type
-  deriving Show
-data Connection = Connection CMD ATYP (String, ByteString) Int -- cmd, atyp, address, port
-  deriving Show
-
-msgSize = 1024 -- magical? may need more
--- for bittorrent 20 + 1024 * 1024
-packSize = 20 + 1024 * 1024
-
-cmdCodes = ['\1', '\2', '\3']
-atypCodes = ['\1', '\3', '\4']
-toCMD c = lookup c $ L.zip cmdCodes [CONNECT, BIND, UDPASSOCIATE]
-toATYP a = lookup a $ L.zip atypCodes [IPV4, DOMAINNAME, IPV6]
+import Socks5Proxy
 
 
-runServer :: Config -> IO ()
-runServer config = withSocketsDo $  do
-  P.putStrLn "Starting server"
-  sock <- listenOn $ (getPort config)
-  loop config sock
-
-justPrint  flag bs = do
-  P.putStrLn flag
-  P.putStrLn $ show bs
-  return bs
-
-main = withSocketsDo $ do
-  runServer (Config  (PortNumber 1080) (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!"))
-
-loop config sock = do
-  (conn, _) <- accept sock
-  forkIO $ handleReq config conn
-  loop config sock
-
-
-doHandshake :: (Data.String.IsString e, MonadIO m, MonadError e m, Functor m) => Socket -> m Connection
-doHandshake conn = do
-  hs <- getMessage conn parseHandshake (isValidHandshake, "Invalid handshake")
-  liftIO $ NBS.sendAll conn "\5\0"
-  connRequest <- getMessage conn parseConnectionReq (isValidConnectionReq, "Invalid connection request")
---  liftIO $ P.putStrLn $ show connRequest
-  return connRequest
-
-handleReq config conn = do
-  eitherConnRequest <- runErrorT $ (doHandshake conn)
-  case eitherConnRequest of
-    Left err -> P.putStrLn err 
-    Right c -> handleConnection c conn config
-  -- TODO: add code for catching exceptions when connections is broken
-  P.putStrLn "done showing"
-  Network.Socket.sClose conn
-
-handleConnection (Connection cmd atyp (addr, bsAddr) port) clientSock config = do
-  P.putStrLn "handling connection"
-  NBS.send clientSock "\5\0\0\1\0\0 01c" --this is magical as fuck...
-
-  addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show port) 
-  let serverAddr = L.head addrInfos -- TODO: issue here might be no head
-  serverSock <- socket (addrFamily serverAddr) Stream defaultProtocol
-  connect serverSock (addrAddress serverAddr) 
 
 {-
-  -- fast proxying solution. problem is it does not allow place a hook
-  -- and tamper with the packets
-  clientH <- socketToHandle clientSock ReadWriteMode
-  serverH <- socketToHandle serverSock ReadWriteMode
-  let serverSide = (serverSock, Just serverH)
-  let clientSide = (clientSock, Just clientH)
-  void . forkIO   $ splice msgSize serverSide clientSide 
-  splice msgSize clientSide serverSide 
--}
-  forkIO $ forwardPackets clientSock serverSock (handleOutgoing config)
-  forwardPackets serverSock clientSock (handleIncoming config)
-  return ()
 
-getMessage conn parse (validate, errMsg) = do
-  tcpMsg <- liftIO $ NBS.recv conn msgSize
-  handshakeParse <- return (parseOnly parse tcpMsg)
-  hs <- case handshakeParse of
-          Left err -> throwError "failed parse "
-          Right hs -> if (validate hs) then return hs else throwError errMsg 
-  return hs
+--the threads  handling the tor proxying
+ -- this is called when a tor connection is made on one side (client)
+createConection send receive
+  --do protocol to read
+  receive
+  send bla
 
--- this is wrong - when connection is broken what happens to this loop?
--- now it just goes on forever...
-forwardPackets src dst  trans = do
-  package <- NBS.recv src packSize
-  transPackage <- trans package
-  NBS.send dst transPackage
-  forwardPackets src dst trans
-
--- only support TCP connect. fail otherwise
-parseConnectionReq :: Parser Connection
-parseConnectionReq = do
-  verB <- anyChar
-  cmd <- fmap fromJust $ satisfyWith (toCMD . word8ToChar) toBool
-  anyChar
-  atyp <- fmap fromJust $ satisfyWith (toATYP . word8ToChar) toBool
-  address <- case atyp of
-    IPV4 -> DAC.take 4
-    DOMAINNAME -> do {size <- fmap ord $ anyChar ; DAC.take size}
-    IPV6 -> DAC.take 16
-  h <- anyChar
-  l <- anyChar
-  return (Connection CONNECT atyp (toStrAddress atyp address, address) (charsToInt h l))
-
-isValidConnectionReq :: Connection -> Bool
-isValidConnectionReq _ = True
+  initiate thread for handling connection to a remote peer
+  (btSend, btRec) <- connectTo bittorrentID
+  set 2 way pipes
+  to handle the connections
   
-parseHandshake :: Parser ClientHandshake
-parseHandshake = do
-  verB <- anyChar
-  methCount <- fmap ord anyChar
-  methods <- replicateM methCount anyChar
-  return $ CH verB methods
 
-isValidHandshake :: ClientHandshake -> Bool
-isValidHandshake (CH ver methods) = ver == (chr 5) && L.elem '\0' methods
 
-toStrAddress :: ATYP -> ByteString -> String
-toStrAddress DOMAINNAME = Ch8.unpack
-toStrAddress IPV4 = toIPAdress
-toStrAddress IPV6 = toIPAdress
+the IO function passed to the proxy  
+  --fuck Channels
+IO func called by this...
 
-toIPAdress :: ByteString -> String
-toIPAdress bs = (L.foldl (++) "") . (inbetween ".")  . (L.map $ show . ord) . Ch8.unpack $ bs
+  (send, rec)  <- getChannels addr 
+  writeTChan send package
+  transPackage <- readTChan rec
 
--- converts IPV4 address to word32; not needed currently
-toWord32Addr :: ByteString -> Word32
-toWord32Addr bs = sum $ L.zipWith (*) (L.reverse . (L.take (DatB.length bs)) $ powers (2 ^ 8))  (L.map toWord32 $ DatB.unpack bs)
+
+
+-- the bittorrentConnection 
+connectTo :
+  add to mvar the new IP for the thing to push stuff through it
+  get a send (by wrapping getting a channel to push items into)
+  get a receive -> (by putting a func that checks if a package contains tor payload)
+  do protocol to handshake
+
+
+  forkIO to listen on the package out channel and check if smth is in the package in channel -- push it out
+  
+
+connectTo 
+
+-}
+
+{-
+  socks5 threads
+  incoming 
+  outgoing
+    both send to filtering thread (knows about who needs what)
+   
+  filtering thread - reads chan about who to filter to
+  gets incoming and outgoing - sends them to responsible thread waits for them to get back to be pushed:q
+  
+-}
+
+
+{-
+INCOMING
+ tor <-  if data  | if control <decode>  <- encoded bittorrent <-filter<- bittorrent 
+                  V
+
+
+                   
+OUTGOING
+ tor-> <encode -> -> push on to bittorrent package
+-}
+
+{-
+incomingPackage
+  if data 
+    pass forward
+  if control
+    if handshake do it
+    if switch swarm - do it
+-}
+
+{-
+
+makeConnection server torConn = do
+  btConn <- createBTConnection server
+  proxy btConn torConn
+
+-}
+
+
+{-
+
+makeTorren1
+
+-}
+
+main = do
+  P.putStrLn "main running"
+  
 

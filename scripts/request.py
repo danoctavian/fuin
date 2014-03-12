@@ -2,6 +2,7 @@ import httplib
 import requests
 import sys
 import httplib
+import scipy
 
 pyserver = "www.python.org" 
 address = "127.0.0.1"
