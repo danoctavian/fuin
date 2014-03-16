@@ -19,8 +19,6 @@ import Control.Monad
 -- internal module
 import Utils
 
---main = simpleHttp "http://www.haskell.org/" >>= L.putStr
-
 actionParam = "action"
 hashParam = "hash"
 
@@ -43,7 +41,6 @@ getToken = (\(TagText t) -> t) . (!! 2) . parseTags
 
 --"http://localhost:8080/gui"
 -- get the connection
---uTorentConn :: String -> String -> String -> IO (UTorrentConn)
 uTorentConn baseUrl user pass = do
   let url = (fromJust . importURL $ baseUrl) {url_path = "gui/"}
   let conn = UTorrentConn url user pass (createCookieJar [])
@@ -74,13 +71,9 @@ list conn = fmap ( Torrent . (\(Array a) -> DV.toList a) . fromJust . (Data.Hash
                               . fromJust . (\s -> decode s :: Maybe Object))
               $ requestWithParams conn [("list", "1")]
 
-
-
 pause conn hash = requestWithParams conn [(hashParam, hash), (actionParam, "pause")]
 addUrl conn url = requestWithParams conn [("s", url), (actionParam, "add-url")]
 
-
-settingToParam :: ProxySetting -> (String, String)
 settingToParam (ProxySetType proxyType) = ("proxy.type", show . fromEnum $ proxyType)
 settingToParam (ProxyIP ip) =  ("proxy.proxy", ip)
 settingToParam (ProxyP2P isP2P) = ("proxy.p2p", show . fromBool $ isP2P)
@@ -93,16 +86,16 @@ setProxySettings conn settings =if' (settings == []) (return ()) $ do
   return ()
 
 
-
+-- toy main function just for testing;
+-- TODO; throw away
 main = do
   conn <- uTorentConn "http://localhost:8080" "admin" ""
   P.putStrLn "made first connection"
-  --r <- requestWithParams conn [("list", "1")]
   r <- list conn
   P.putStrLn $ show $  r
- -- r2 <- pause conn "D6D123D9A9B108971ECB09CA6593D2593CD564A4"
   r2 <- addUrl conn archMagnet
-  P.putStrLn $ show $  r2
+  r3 <- setProxySettings conn [ProxySetType Socks4, ProxyIP "127.0.0.69", ProxyPort 6969, ProxyP2P True]
+  P.putStrLn $ show $  r3
   return ()
 
 
