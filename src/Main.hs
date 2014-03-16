@@ -8,8 +8,13 @@ import Socks5Proxy
 
 {-
 
+how to make the server work?
+
+
 --the threads  handling the tor proxying
  -- this is called when a tor connection is made on one side (client)
+
+
 createConection send receive
   --do protocol to read
   receive
@@ -19,10 +24,16 @@ createConection send receive
   (btSend, btRec) <- connectTo bittorrentID
   set 2 way pipes
   to handle the connections
+
   
+
+need a module to tell deluge to do shit:
+start file connection - params how fast how slow; proxying; do this now!!
+
 
 
 the IO function passed to the proxy  
+ -- keep the logic of encoding and decoding here -because you need to understand the proto itself 
   --fuck Channels
 IO func called by this...
 
@@ -30,7 +41,7 @@ IO func called by this...
   writeTChan send package
   transPackage <- readTChan rec
 
-
+  
 
 -- the bittorrentConnection 
 connectTo :
