@@ -3,6 +3,14 @@ import Data.Word
 import Data.Char
 import Data.ByteString.Char8 as BSC
 import Prelude as P
+import Data.ByteString.Internal (c2w)
+import Data.ByteString.Lazy as DBSL
+import Data.ByteString as DBS
+
+localhost = "localhost"
+
+strToWord8s :: String -> [Word8]
+strToWord8s = P.map c2w
 
 if' x a b = if x then a else b
 fromRight (Right x) = x
@@ -35,4 +43,5 @@ splitFor delim str = if' (rest == BSC.pack "") ([chunk])
     (chunk, rest) = BSC.breakSubstring delim str
     dL = BSC.length delim
 
-
+toStrict1 :: DBSL.ByteString -> DBS.ByteString
+toStrict1 = DBS.concat . DBSL.toChunks

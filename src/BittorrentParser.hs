@@ -1,4 +1,4 @@
-module WireProtocol
+module BittorrentParser
 where
 
 import Control.Applicative hiding (empty)

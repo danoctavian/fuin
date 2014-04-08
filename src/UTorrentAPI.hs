@@ -1,4 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
+
+module UTorrentAPI where
+  
 import Network.HTTP.Conduit
 import System.Environment (getArgs)
 import qualified Data.ByteString.Lazy as L
@@ -29,7 +32,6 @@ data UTorrentConn = UTorrentConn { baseURL :: URL, user :: String, pass :: Strin
 
 data Torrent = Torrent [Value]
   deriving Show
-
 
 data ProxyType = None | Socks4 | Socks5 | HTTPS | HTTP deriving (Enum, Show, Eq)
 

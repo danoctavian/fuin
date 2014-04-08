@@ -1,5 +1,6 @@
 {-# LANGUAGE ForeignFunctionInterface #-} 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Socks5Proxy where
   
@@ -35,7 +36,7 @@ import Prelude as P
 
 import Utils
 
-type PacketHandler = ByteString -> IO (ByteString)
+type PacketHandler = (MonadIO m) => ByteString -> m (ByteString)
 data Config = Config {getPort :: PortID, handleIncoming :: PacketHandler, handleOutgoing :: PacketHandler}
 
 type Method = Char
@@ -59,15 +60,17 @@ toCMD c = lookup c $ L.zip cmdCodes [CONNECT, BIND, UDPASSOCIATE]
 toATYP a = lookup a $ L.zip atypCodes [IPV4, DOMAINNAME, IPV6]
 
 
-runServer :: Config -> IO ()
-runServer config = withSocketsDo $  do
-  P.putStrLn "Starting server"
+runServer :: (MonadIO io) => Config -> io ()
+runServer config = liftIO $ withSocketsDo $  do
+  liftIO $ P.putStrLn "Starting server"
   sock <- listenOn $ (getPort config)
   loop config sock
 
+
+justPrint :: (Show s, MonadIO m) => String -> s -> m s 
 justPrint  flag bs = do
-  P.putStrLn flag
-  P.putStrLn $ show bs
+  liftIO $ P.putStrLn flag
+  liftIO $ P.putStrLn $ show bs
   return bs
 
 runForShow = withSocketsDo $ do

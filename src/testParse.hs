@@ -3,7 +3,7 @@ import Prelude as P
 import Data.List.Split
 import System.IO
 import Utils
-import WireProtocol
+import BittorrentParser
 
 import Data.Serialize
 import Data.Serialize.Put
@@ -17,7 +17,7 @@ data Packet = Packet ByteString ByteString
   deriving Show
 
 getPacks :: ByteString -> [Packet]
-getPacks = (P.map getPack) . (splitFor "5692433")
+getPacks = (P.map getPack) . (splitFor "5692433") -- because there's not enough magic in this world
   where
     getPack :: ByteString -> Packet
     getPack "" = Packet "" "" 
@@ -31,6 +31,13 @@ getBTPack :: BSL.ByteString -> Either String Message
 getBTPack = decode
 
 main = do 
-  let fName = "packCap"
+  let fName = "../data/packCap"
   contents <-BSL.readFile fName
-  System.IO.putStrLn $ show $ P.take 20 $ rights $ P.map (\(Packet _ p) -> getBTPack p) $ getPacks contents
+  let packs =  P.map pieceSummary $ P.filter isPiece $ P.take 600 $ rights $ P.map (\(Packet _ p) -> getBTPack p) $ getPacks contents
+  System.IO.putStrLn $ show $ packs
+
+
+isPiece (Piece _ _ _) = True
+isPiece _ = False
+
+pieceSummary (Piece num i bs) = (num, i, BSL.length bs)
