@@ -19,14 +19,16 @@ data Transporter = Transporter UTorrentAPI.UTorrentConn
 
 type Key = Word32
 
+-- server public key; support file; IP 
+data ServerAddress = ServerAddress Key String 
+  deriving Show
+
 clientLogger = "fuin.client"  
 
-data ServerAddress = ServerAddress Key
-  deriving Show
 init ::(MonadIO m) => PortID -> m ()
 init port = do
   liftIO $ debugM clientLogger "initializing..."
-  {-}
+  {-
   liftIO $ Socks5Proxy.runServer $ Config {getPort = port,
                                     handleIncoming = (justPrint "incoming"), handleOutgoing = (justPrint "outgoing")}
 -}
@@ -49,4 +51,5 @@ runClient = do
 --    s <-liftIO $ streamHandler stdout DEBUG
 --    liftIO $ updateGlobalLogger rootLoggerName (addHandler s)
     transporter <- liftIO $ Client.init $ PortNumber 1080
+ --   makeConnection transporter 
     return ()
