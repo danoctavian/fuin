@@ -152,6 +152,7 @@ parseSink = do
 --runStream :: IO ()
 runStream = do
   liftIO $ P.putStrLn "running stream"
+  
   res <- parseByteSource =$ (conduitParser parseMessage) $$ parseSink
   return ()
 

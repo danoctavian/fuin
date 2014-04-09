@@ -32,6 +32,12 @@ import System.IO.Strict as SysIOStrict
 import Network.Socket.Splice
 import Data.Word
 import Prelude as P
+
+import Data.Conduit.Network
+import Data.Conduit
+import Data.Conduit.List as DCL
+
+import Control.Monad.Trans.Resource
 --import WireProtocol
 
 import Utils
@@ -47,7 +53,7 @@ data CMD = CONNECT | BIND | UDPASSOCIATE -- command
   deriving Show
 data ATYP = IPV4 | DOMAINNAME | IPV6 -- address type
   deriving Show
-data Connection = Connection CMD ATYP (String, ByteString) Int -- cmd, atyp, address, port
+data Connection = Connection CMD ATYP ByteString Int -- cmd, atyp, address, port
   deriving Show
 
 msgSize = 1024 -- magical? may need more
@@ -63,7 +69,7 @@ toATYP a = lookup a $ L.zip atypCodes [IPV4, DOMAINNAME, IPV6]
 runServer :: (MonadIO io) => Config -> io ()
 runServer config = liftIO $ withSocketsDo $  do
   liftIO $ P.putStrLn "Starting server"
-  sock <- listenOn $ (getPort config)
+  sock <- listenOn $ (Socks5Proxy.getPort config)
   loop config sock
 
 
@@ -75,6 +81,9 @@ justPrint  flag bs = do
 
 runForShow = withSocketsDo $ do
   runServer (Config  (PortNumber 1080) (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!"))
+
+runNoOpSocks = withSocketsDo $ do
+  runServer (Config  (PortNumber 1080) return return)   
 
 loop config sock = do
   (conn, _) <- accept sock
@@ -99,15 +108,14 @@ handleReq config conn = do
   P.putStrLn "done showing"
   Network.Socket.sClose conn
 
-handleConnection (Connection cmd atyp (addr, bsAddr) port) clientSock config = do
+handleConnection (Connection cmd atyp bsAddr port) clientSock config = do
   P.putStrLn "handling connection"
   NBS.send clientSock "\5\0\0\1\0\0 01c" --this is magical as fuck...
-
+  let addr = toStrAddress atyp bsAddr
   addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show port) 
   let serverAddr = L.head addrInfos -- TODO: issue here might be no head
   serverSock <- socket (addrFamily serverAddr) Stream defaultProtocol
   connect serverSock (addrAddress serverAddr) 
-
 {-
   -- fast proxying solution. problem is it does not allow place a hook
   -- and tamper with the packets
@@ -132,11 +140,18 @@ getMessage conn parse (validate, errMsg) = do
 
 -- this is wrong - when connection is broken what happens to this loop?
 -- now it just goes on forever...
-forwardPackets src dst  trans = do
-  package <- NBS.recv src packSize
-  transPackage <- trans package
-  NBS.send dst transPackage
-  forwardPackets src dst trans
+
+
+safeConduitSock :: (MonadResource m) => (Socket -> ConduitM i o m r) -> Socket -> ConduitM i o m r
+safeConduitSock conduit socket  = bracketP ((return socket) :: IO (Socket)) Network.Socket.sClose conduit
+
+-- TODO: implement below code using safe resource closing using above; now ihnfc what happens to the socket
+forwardPackets :: (MonadIO io) => Socket ->
+                  Socket -> (ByteString -> io ByteString)
+                  -> io ()
+forwardPackets src dst trans = do
+  r <- (sourceSocket src) =$ (DCL.mapM trans) $$ (sinkSocket dst)
+  return ()
 
 -- only support TCP connect. fail otherwise
 parseConnectionReq :: Parser Connection
@@ -151,7 +166,7 @@ parseConnectionReq = do
     IPV6 -> DAC.take 16
   h <- anyChar
   l <- anyChar
-  return (Connection CONNECT atyp (toStrAddress atyp address, address) (charsToInt h l))
+  return (Connection CONNECT atyp address (charsToInt h l))
 
 isValidConnectionReq :: Connection -> Bool
 isValidConnectionReq _ = True
