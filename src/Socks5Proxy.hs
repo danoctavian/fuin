@@ -1,6 +1,8 @@
 {-# LANGUAGE ForeignFunctionInterface #-} 
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 
 module Socks5Proxy where
   
@@ -22,6 +24,7 @@ import Control.Monad as CM
 import qualified Data.ByteString.Lazy as BSL
 import Data.Attoparsec 
 import Data.Attoparsec.Char8 as DAC
+import Data.Attoparsec.Binary
 import Network.Socket.ByteString as NBS
 import Control.Monad.Error
 import Data.Char
@@ -32,18 +35,26 @@ import System.IO.Strict as SysIOStrict
 import Network.Socket.Splice
 import Data.Word
 import Prelude as P
-
 import Data.Conduit.Network
 import Data.Conduit
 import Data.Conduit.List as DCL
-
 import Control.Monad.Trans.Resource
+import System.Log.Logger
+import System.Log.Handler.Syslog
+import System.Log.Handler.Simple
+import Data.List.Split as DLS
+
 --import WireProtocol
 
 import Utils
 
+data PacketHandlers = PacketHandlers {incoming :: PacketHandler, outgoing :: PacketHandler}
 type PacketHandler = (MonadIO m) => ByteString -> m (ByteString)
-data Config = Config {getPort :: PortID, handleIncoming :: PacketHandler, handleOutgoing :: PacketHandler}
+
+-- client sock -> remote server sock -> handlers
+type InitHook = (MonadIO m) => SockAddr -> SockAddr -> m PacketHandlers
+type GetConn = (Data.String.IsString e, MonadIO m, MonadError e m, Functor m) => Socket -> m Connection
+data Config = Config {getPort :: PortID, initHook :: InitHook, getConn :: GetConn}
 
 type Method = Char
 data ClientHandshake = CH Char [Method]
@@ -52,8 +63,8 @@ data ClientHandshake = CH Char [Method]
 data CMD = CONNECT | BIND | UDPASSOCIATE -- command
   deriving Show
 data ATYP = IPV4 | DOMAINNAME | IPV6 -- address type
-  deriving Show
-data Connection = Connection CMD ATYP ByteString Int -- cmd, atyp, address, port
+  deriving (Show, Eq)
+data Connection = Connection CMD ATYP SockAddr -- cmd, atyp, address, port
   deriving Show
 
 msgSize = 1024 -- magical? may need more
@@ -79,43 +90,56 @@ justPrint  flag bs = do
   liftIO $ P.putStrLn $ show bs
   return bs
 
+printerInit _ _ = return $ PacketHandlers (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!") 
+noOpInit _ _ = return $ PacketHandlers return return
+
 runForShow = withSocketsDo $ do
-  runServer (Config  (PortNumber 1080) (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!"))
+  runServer (Config  (PortNumber 1080)
+            printerInit
+            doSocksHandshake)
 
 runNoOpSocks = withSocketsDo $ do
-  runServer (Config  (PortNumber 1080) return return)   
+  runServer (Config  (PortNumber 1080) noOpInit doSocksHandshake)
 
-loop config sock = do
-  (conn, _) <- accept sock
-  forkIO $ handleReq config conn
-  loop config sock
+-- used as a reverse proxy...
+runNoProtoProxy = withSocketsDo $ do
+  runServer (Config  (PortNumber 1080) printerInit
+            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet (PortNum 3000) $ readIPv4 "127.0.0.1"))
+
+loop config serverSock = do
+  (clientSock, addr) <- accept serverSock
+  forkIO $ handleReq config (clientSock, addr)
+  loop config serverSock
 
 
-doHandshake :: (Data.String.IsString e, MonadIO m, MonadError e m, Functor m) => Socket -> m Connection
-doHandshake conn = do
+doSocksHandshake :: GetConn
+doSocksHandshake conn = do
   hs <- getMessage conn parseHandshake (isValidHandshake, "Invalid handshake")
   liftIO $ NBS.sendAll conn "\5\0"
   connRequest <- getMessage conn parseConnectionReq (isValidConnectionReq, "Invalid connection request")
---  liftIO $ P.putStrLn $ show connRequest
+  liftIO $ NBS.send conn "\5\0\0\1\0\0 01c" --this is magical as fuck...
   return connRequest
 
-handleReq config conn = do
-  eitherConnRequest <- runErrorT $ (doHandshake conn)
+handleReq config (sock, addr) = do
+  eitherConnRequest <- runErrorT $ (getConn config $ sock)
   case eitherConnRequest of
     Left err -> P.putStrLn err 
-    Right c -> handleConnection c conn config
+    Right c -> handleConnection c (sock, addr) config
   -- TODO: add code for catching exceptions when connections is broken
   P.putStrLn "done showing"
-  Network.Socket.sClose conn
+  Network.Socket.sClose sock
 
-handleConnection (Connection cmd atyp bsAddr port) clientSock config = do
+handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) config = do
   P.putStrLn "handling connection"
-  NBS.send clientSock "\5\0\0\1\0\0 01c" --this is magical as fuck...
-  let addr = toStrAddress atyp bsAddr
-  addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show port) 
+  {-}
+  let addr = getStrAddress atyp bsAddr
+  addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show $ sockAddrPort ) 
   let serverAddr = L.head addrInfos -- TODO: issue here might be no head
-  serverSock <- socket (addrFamily serverAddr) Stream defaultProtocol
-  connect serverSock (addrAddress serverAddr) 
+  -}
+  serverSock <- socket AF_INET Stream defaultProtocol
+  P.putStrLn $ "address is " ++ (show serverSockAddr)
+  connect serverSock serverSockAddr
+  handlers <- (initHook config) clientAddr serverSockAddr 
 {-
   -- fast proxying solution. problem is it does not allow place a hook
   -- and tamper with the packets
@@ -126,8 +150,8 @@ handleConnection (Connection cmd atyp bsAddr port) clientSock config = do
   void . forkIO   $ splice msgSize serverSide clientSide 
   splice msgSize clientSide serverSide 
 -}
-  forkIO $ forwardPackets clientSock serverSock (handleOutgoing config)
-  forwardPackets serverSock clientSock (handleIncoming config)
+  forkIO $ forwardPackets clientSock serverSock (outgoing handlers)
+  forwardPackets serverSock clientSock (incoming handlers)
   return ()
 
 getMessage conn parse (validate, errMsg) = do
@@ -164,9 +188,8 @@ parseConnectionReq = do
     IPV4 -> DAC.take 4
     DOMAINNAME -> do {size <- fmap ord $ anyChar ; DAC.take size}
     IPV6 -> DAC.take 16
-  h <- anyChar
-  l <- anyChar
-  return (Connection CONNECT atyp address (charsToInt h l))
+  port <- anyWord16le
+  return (Connection CONNECT atyp $ fromJust $ toSockAddress atyp address port)
 
 isValidConnectionReq :: Connection -> Bool
 isValidConnectionReq _ = True
@@ -186,10 +209,48 @@ toStrAddress DOMAINNAME = Ch8.unpack
 toStrAddress IPV4 = toIPAdress
 toStrAddress IPV6 = toIPAdress
 
+getStrAddress :: ATYP -> Either ByteString String -> String
+getStrAddress atyp (Left bs) = toStrAddress atyp bs
+getStrAddress _ (Right s) = s
+
 toIPAdress :: ByteString -> String
 toIPAdress bs = (L.foldl (++) "") . (inbetween ".")  . (L.map $ show . ord) . Ch8.unpack $ bs
 
--- converts IPV4 address to word32; not needed currently
-toWord32Addr :: ByteString -> Word32
-toWord32Addr bs = sum $ L.zipWith (*) (L.reverse . (L.take (DatB.length bs)) $ powers (2 ^ 8))  (L.map toWord32 $ DatB.unpack bs)
 
+-- TODO: fields for IPV6 namely flow and ScopeID are from my ass; need to figure out wtf
+toSockAddress :: ATYP -> ByteString -> Word16 -> Maybe SockAddr
+toSockAddress atyp bs port
+  | atyp == IPV4 = toHostAddress bs >>= (\a -> Just $ SockAddrInet (PortNum port) a)
+  | atyp == IPV6 = toHostAddress6 bs >>= (\a -> Just $ SockAddrInet6 (PortNum port)
+                                                (0 :: Word32) a (0 :: Word32))
+  | atyp == DOMAINNAME = undefined
+
+
+
+word32Size = 4
+-- converts IPV4 address to word32; not needed currently
+toHostAddress :: ByteString -> Maybe HostAddress
+toHostAddress bs = if' (DatB.length bs == word32Size)
+                      (Just $ word8sToWord32 $ DatB.unpack bs)
+                      Nothing
+
+-- NOT TESTED (not like anything in this packet is REALLY tested but hey)
+-- it's probably wrong!!
+toHostAddress6 :: ByteString -> Maybe HostAddress6
+toHostAddress6 bs =if' (DatB.length bs == 4 * word32Size)
+                   (let ws = L.map (fromJust . toHostAddress) $ L.unfoldr (Just . (DatB.splitAt 4)) bs
+                    in Just (ws!!0, ws!!1, ws!!2, ws!!3))
+                   Nothing
+
+-- little endian? fuck this shit idk it just works
+word8sToWord32 :: [Word8] -> Word32
+word8sToWord32 bytes =  sum $ L.zipWith (*)
+                      ((L.take (L.length bytes)) $ powers (2 ^ 8)) 
+                      (L.map toWord32 bytes)
+
+readIPv4 :: String -> Word32
+readIPv4 s = word8sToWord32 $ L.map (\s -> read s :: Word8) $ DLS.splitOn "." s
+
+sockAddrPort :: SockAddr -> PortNumber
+sockAddrPort (SockAddrInet p _) = p
+sockAddrPort (SockAddrInet6 p _ _ _) = p
