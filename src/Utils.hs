@@ -6,6 +6,9 @@ import Prelude as P
 import Data.ByteString.Internal (c2w)
 import Data.ByteString.Lazy as DBSL
 import Data.ByteString as DBS
+import Data.Serialize
+import Data.Serialize.Put
+import Data.Serialize.Get
 
 localhost = "localhost"
 
@@ -45,3 +48,7 @@ splitFor delim str = if' (rest == BSC.pack "") ([chunk])
 
 toStrict1 :: DBSL.ByteString -> DBS.ByteString
 toStrict1 = DBS.concat . DBSL.toChunks
+
+toggleEndianW16 :: Word16 -> Word16
+toggleEndianW16 = fromRight . (runGet getWord16be) . runPut . putWord16le 
+

@@ -104,7 +104,8 @@ runNoOpSocks = withSocketsDo $ do
 -- used as a reverse proxy...
 runNoProtoProxy = withSocketsDo $ do
   runServer (Config  (PortNumber 1080) printerInit
-            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet (PortNum 3000) $ readIPv4 "127.0.0.1"))
+            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
+                  (PortNum $ toggleEndianW16 3000) $ readIPv4 "127.0.0.1"))
 
 loop config serverSock = do
   (clientSock, addr) <- accept serverSock
@@ -137,12 +138,15 @@ handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) c
   let serverAddr = L.head addrInfos -- TODO: issue here might be no head
   -}
   serverSock <- socket AF_INET Stream defaultProtocol
+  {- fuck me if i understand why they did this faggotry with reversing the endianness 
+    of whatever i write in port number; but here it goes but whatever gets here is endianness adjusted -}
   P.putStrLn $ "address is " ++ (show serverSockAddr)
   connect serverSock serverSockAddr
   handlers <- (initHook config) clientAddr serverSockAddr 
 {-
   -- fast proxying solution. problem is it does not allow place a hook
   -- and tamper with the packets
+  -- using conduit atm -it's prolly good nough
   clientH <- socketToHandle clientSock ReadWriteMode
   serverH <- socketToHandle serverSock ReadWriteMode
   let serverSide = (serverSock, Just serverH)
@@ -188,8 +192,8 @@ parseConnectionReq = do
     IPV4 -> DAC.take 4
     DOMAINNAME -> do {size <- fmap ord $ anyChar ; DAC.take size}
     IPV6 -> DAC.take 16
-  port <- anyWord16le
-  return (Connection CONNECT atyp $ fromJust $ toSockAddress atyp address port)
+  port <- anyWord16be
+  return (Connection CONNECT atyp $ fromJust $ toSockAddress atyp address $ toggleEndianW16 port)
 
 isValidConnectionReq :: Connection -> Bool
 isValidConnectionReq _ = True
@@ -203,6 +207,8 @@ parseHandshake = do
 
 isValidHandshake :: ClientHandshake -> Bool
 isValidHandshake (CH ver methods) = ver == (chr 5) && L.elem '\0' methods
+
+-- data type convertors
 
 toStrAddress :: ATYP -> ByteString -> String
 toStrAddress DOMAINNAME = Ch8.unpack
@@ -254,3 +260,4 @@ readIPv4 s = word8sToWord32 $ L.map (\s -> read s :: Word8) $ DLS.splitOn "." s
 sockAddrPort :: SockAddr -> PortNumber
 sockAddrPort (SockAddrInet p _) = p
 sockAddrPort (SockAddrInet6 p _ _ _) = p
+
