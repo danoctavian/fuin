@@ -18,7 +18,7 @@ import Network.Socket.ByteString.Lazy as NBSL
 import Control.Concurrent
 import Data.List as L
 import Control.Monad.Maybe
-import Control.Monad.Error
+import Control.Monad.Error as CME
 import Control.Monad.Error.Class
 import Control.Monad as CM
 import qualified Data.ByteString.Lazy as BSL
@@ -26,7 +26,6 @@ import Data.Attoparsec
 import Data.Attoparsec.Char8 as DAC
 import Data.Attoparsec.Binary
 import Network.Socket.ByteString as NBS
-import Control.Monad.Error
 import Data.Char
 import Data.String
 import Data.Maybe
@@ -93,19 +92,7 @@ justPrint  flag bs = do
 printerInit _ _ = return $ PacketHandlers (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!") 
 noOpInit _ _ = return $ PacketHandlers return return
 
-runForShow = withSocketsDo $ do
-  runServer (Config  (PortNumber 1080)
-            printerInit
-            doSocksHandshake)
 
-runNoOpSocks = withSocketsDo $ do
-  runServer (Config  (PortNumber 1080) noOpInit doSocksHandshake)
-
--- used as a reverse proxy...
-runNoProtoProxy = withSocketsDo $ do
-  runServer (Config  (PortNumber 1080) printerInit
-            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
-                  (PortNum $ toggleEndianW16 3000) $ readIPv4 "127.0.0.1"))
 
 loop config serverSock = do
   (clientSock, addr) <- accept serverSock
@@ -137,9 +124,11 @@ handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) c
   addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show $ sockAddrPort ) 
   let serverAddr = L.head addrInfos -- TODO: issue here might be no head
   -}
-  serverSock <- socket AF_INET Stream defaultProtocol
+  serverSock <- socket (toAddressFamily atyp) Stream defaultProtocol --
   {- fuck me if i understand why they did this faggotry with reversing the endianness 
-    of whatever i write in port number; but here it goes but whatever gets here is endianness adjusted -}
+    of whatever i write in port number; but here it goes but whatever gets here is endianness adjusted
+    essentially the PortNumber thing assumes what is given to it is big endian (network byte order)
+    and turns it into little endian (host byte order) -}
   P.putStrLn $ "address is " ++ (show serverSockAddr)
   connect serverSock serverSockAddr
   handlers <- (initHook config) clientAddr serverSockAddr 
@@ -162,8 +151,8 @@ getMessage conn parse (validate, errMsg) = do
   tcpMsg <- liftIO $ NBS.recv conn msgSize
   handshakeParse <- return (parseOnly parse tcpMsg)
   hs <- case handshakeParse of
-          Left err -> throwError "failed parse "
-          Right hs -> if (validate hs) then return hs else throwError errMsg 
+          Left err -> CME.throwError "failed parse "
+          Right hs -> if (validate hs) then return hs else CME.throwError errMsg 
   return hs
 
 -- this is wrong - when connection is broken what happens to this loop?
@@ -226,8 +215,8 @@ toIPAdress bs = (L.foldl (++) "") . (inbetween ".")  . (L.map $ show . ord) . Ch
 -- TODO: fields for IPV6 namely flow and ScopeID are from my ass; need to figure out wtf
 toSockAddress :: ATYP -> ByteString -> Word16 -> Maybe SockAddr
 toSockAddress atyp bs port
-  | atyp == IPV4 = toHostAddress bs >>= (\a -> Just $ SockAddrInet (PortNum port) a)
-  | atyp == IPV6 = toHostAddress6 bs >>= (\a -> Just $ SockAddrInet6 (PortNum port)
+  | atyp == IPV4 = toHostAddress bs >>= (\a -> Just $ SockAddrInet (portNumberle port) a)
+  | atyp == IPV6 = toHostAddress6 bs >>= (\a -> Just $ SockAddrInet6 (portNumberle port)
                                                 (0 :: Word32) a (0 :: Word32))
   | atyp == DOMAINNAME = undefined
 
@@ -260,4 +249,25 @@ readIPv4 s = word8sToWord32 $ L.map (\s -> read s :: Word8) $ DLS.splitOn "." s
 sockAddrPort :: SockAddr -> PortNumber
 sockAddrPort (SockAddrInet p _) = p
 sockAddrPort (SockAddrInet6 p _ _ _) = p
+
+toAddressFamily :: ATYP -> Family 
+toAddressFamily IPV4 = AF_INET
+toAddressFamily IPV6 = AF_INET6
+toAddressFamily DOMAINNAME = undefined -- TODO: wut is this
+
+-- fuckaround runners
+
+runForShow = withSocketsDo $ do -- for sho
+  runServer (Config  (PortNumber 1080)
+            printerInit
+            doSocksHandshake)
+
+runNoOpSocks = withSocketsDo $ do
+  runServer (Config  (PortNumber 1080) noOpInit doSocksHandshake)
+
+-- used as a reverse proxy...
+runNoProtoProxy = withSocketsDo $ do
+  runServer (Config  (PortNumber 1080) printerInit
+            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
+                  (PortNum $ toggleEndianW16 3000) $ readIPv4 "127.0.0.1"))
 

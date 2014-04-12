@@ -30,7 +30,7 @@ import Control.Concurrent.STM
 import Data.Attoparsec 
 import Data.Attoparsec.Char8 as DAC
 import Data.Binary
-
+import System.Timeout 
 
 messageHeader :: ByteString
 messageHeader = "MSG"
@@ -81,7 +81,7 @@ tryChanSource chan = do
   SOURCE: read message from socket; push the bytes; parse stream of messages; SINK - Tchan for messages
   -}
 
-
+-- message between server and client
 parseMessage :: Parser Message
 parseMessage = do
   string messageHeader
@@ -152,7 +152,7 @@ parseSink = do
 --runStream :: IO ()
 runStream = do
   liftIO $ P.putStrLn "running stream"
-  
+
   res <- parseByteSource =$ (conduitParser parseMessage) $$ parseSink
   return ()
 

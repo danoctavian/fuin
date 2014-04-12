@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 
 module Client where
 
@@ -14,18 +16,26 @@ import System.Log.Logger
 import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
 import System.IO
+import Network.Socket
 
 data Transporter = Transporter UTorrentAPI.UTorrentConn
 
 type Key = Word32
 
+type TorrentFile = String
+
 -- server public key; support file; IP 
-data ServerAddress = ServerAddress Key String 
+data ServerAddress = ServerAddress Key TorrentFile SockAddr
   deriving Show
+
+
+data Message = Data ByteString | SwitchChannel TorrentFile
+type Send = (MonadIO m) => Message -> m ()
+type Receive = (MonadIO m) => m Message
 
 clientLogger = "fuin.client"  
 
-init ::(MonadIO m) => PortID -> m ()
+init ::(MonadIO m) => PortID -> m Transporter
 init port = do
   liftIO $ debugM clientLogger "initializing..."
   {-
@@ -38,18 +48,19 @@ init port = do
   conn <- uTorrentConn "http://localhost:8080" "admin" ""
   response <- setProxySettings conn [ProxySetType Socks4, ProxyIP localhost, ProxyPort port, ProxyP2P True]
   -}
+  return undefined
 
 
-makeConnection :: (MonadIO io) => Transporter -> ServerAddress -> io ()
+makeConnection :: (MonadIO m) => Transporter -> ServerAddress -> m (Send, Receive)
 makeConnection trans serverAddr = do
   liftIO $ debugM clientLogger $ "make connection" ++ (show serverAddr)
-  return ()
+  return undefined
 
 runClient :: (MonadIO io) => io ()
 runClient = do
     liftIO $ updateGlobalLogger "fuin.client" (setLevel DEBUG)
 --    s <-liftIO $ streamHandler stdout DEBUG
 --    liftIO $ updateGlobalLogger rootLoggerName (addHandler s)
-    transporter <- liftIO $ Client.init $ PortNumber 1080
- --   makeConnection transporter 
+    transporter <- Client.init $ PortNumber 1080
+    makeConnection transporter $ ServerAddress (1 :: Word32) "muelagabori" $ SockAddrInet (portNumberle 6000) (1 :: Word32)
     return ()

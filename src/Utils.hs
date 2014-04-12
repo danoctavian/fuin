@@ -9,9 +9,18 @@ import Data.ByteString as DBS
 import Data.Serialize
 import Data.Serialize.Put
 import Data.Serialize.Get
+import Network.Socket
 
 localhost = "localhost"
 
+
+{-}
+
+instance Functor (Either a) where
+  --fmap :: (b -> c) -> Either a b -> Either a c
+  fmap _ (Left x) = Left x
+  fmap f (Right y) = Right $ f y
+-}
 strToWord8s :: String -> [Word8]
 strToWord8s = P.map c2w
 
@@ -51,4 +60,8 @@ toStrict1 = DBS.concat . DBSL.toChunks
 
 toggleEndianW16 :: Word16 -> Word16
 toggleEndianW16 = fromRight . (runGet getWord16be) . runPut . putWord16le 
+
+-- little endian portnumber; you get what you see basically
+portNumberle :: Word16 -> PortNumber
+portNumberle = PortNum . toggleEndianW16 
 
