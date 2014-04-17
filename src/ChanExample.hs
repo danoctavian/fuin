@@ -16,6 +16,8 @@ import Control.Monad.IO.Class
 import Control.Monad.Base
 import Control.Monad.Trans.Control
 
+import Prelude as P
+
 data MyException = ThisException | ThatException
      deriving (Show, Typeable)
 
@@ -53,3 +55,13 @@ runExceptionCode = do
     Right x ->  return 2 
   return ()
   --CEL.catch (maybeThrow 1)  ((\e -> return 1) :: MyException -> IO Int)
+
+fooork :: (MonadIO m) => m ()
+fooork = do
+  liftIO $ P.putStrLn "foooork"
+
+runFork :: (MonadIO m) => m ()
+runFork = do
+  liftIO $ P.putStrLn "running a fork"
+  id <- liftIO $ forkIO $ liftIO fooork 
+  return ()

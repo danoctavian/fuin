@@ -50,6 +50,9 @@ import Utils
 data PacketHandlers = PacketHandlers {incoming :: PacketHandler, outgoing :: PacketHandler}
 type PacketHandler = (MonadIO m) => ByteString -> m (ByteString)
 
+
+idPacketHandlers = PacketHandlers return return
+
 -- client sock -> remote server sock -> handlers
 type InitHook = (MonadIO m) => SockAddr -> SockAddr -> m PacketHandlers
 type GetConn = (Data.String.IsString e, MonadIO m, MonadError e m, Functor m) => Socket -> m Connection

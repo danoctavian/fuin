@@ -26,6 +26,8 @@ strToWord8s = P.map c2w
 
 if' x a b = if x then a else b
 fromRight (Right x) = x
+isRight (Right _) = True
+isRight _ = False
 
 toBool (Just x) = True
 toBool Nothing = False 

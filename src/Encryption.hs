@@ -1,3 +1,5 @@
+module Encryption where
+
 import Crypto.Cipher.AES
 import Data.ByteString.Char8 as DBC
 import Data.Byteable
@@ -12,7 +14,23 @@ import Data.Word (Word8)
 
 -- measure entropy of video file vs random file
 
+type Key = ByteString -- 32 bytes key
 
+type EncryptF = ByteString -> ByteString
+
+data ClientEncryption = ClientEncryption {
+                          bootstrapEncrypt :: EncryptF,
+                          clientEncrypt :: EncryptF,
+                          clientDecrypt :: EncryptF
+                          }
+                        
+
+
+-- TODO: give proper implementation
+makeClientEncryption :: Key -> Key -> ClientEncryption
+makeClientEncryption clientKey serverKey
+  = ClientEncryption id id id
+{-
 c2w8 :: Char -> Word8
 c2w8 = fromIntegral . fromEnum
 charRangeStart :: Word8
@@ -53,4 +71,6 @@ entropy s =
   where lg' c = (c * ) . logBase 2 $ 1.0 / c
         fq' c = DL.map (\x -> x / (DL.sum c)) c 
 
-aes = initAES $ DBC.pack $ P.take 32 $ P.repeat 'c'5
+aes = initAES $ DBC.pack $ P.take 32 $ P.repeat 'c' 
+
+-}

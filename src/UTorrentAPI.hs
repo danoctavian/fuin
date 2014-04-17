@@ -3,6 +3,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ConstraintKinds #-}
+
 module UTorrentAPI where
   
 import Network.HTTP.Conduit
@@ -32,8 +34,10 @@ import Control.Monad.Trans.Control
 import System.Log.Logger
 import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
+import Network
 
 import TorrentClient
+
 
 -- internal module
 import Utils
@@ -50,14 +54,13 @@ data UTorrentConn = UTorrentConn { baseURL :: URL, user :: String, pass :: Strin
 
 
 
-getToken :: String -> String 
-getToken = (\(TagText t) -> t) . (!! 2) . parseTags 
+makeUTorrentConn baseUrl user pass = do
+  conn <- uTorentConn baseUrl user pass
+  return $ TorrentClientConn {addMagnetLink = addUrl conn, listTorrents = list conn,
+                              pauseTorrent = pause conn, setProxySettings = setSettings conn}
 
---"http://localhost:8080/gui"
--- get the connection
 
-uTorentConn :: (MonadIO m, MonadError String m, Functor m, MonadBaseControl IO m) => 
-                String -> String -> String -> m UTorrentConn
+-- refactor this crap based on the previous pattern
 uTorentConn baseUrl user pass = do
   let url = (fromJust . importURL $ baseUrl) {url_path = "gui/"}
   let conn = UTorrentConn url user pass (createCookieJar [])
@@ -66,10 +69,8 @@ uTorentConn baseUrl user pass = do
   return $ UTorrentConn (add_param url ("token", getToken (DBSLC.unpack $ responseBody res)))
                         user pass (responseCookieJar res)
 
---makeRequest :: (Exception e) => UTorrentConn -> IO (Either e (Response L.ByteString))
 
-makeRequest :: (MonadIO m, MonadError String m, Functor m, MonadBaseControl IO m) => 
-                UTorrentConn -> m (Response L.ByteString)
+--makeRequest :: (MonadTorrentClient m) => UTorrentConn -> m (Response L.ByteString)
 makeRequest conn = do
   request <-liftIO $ parseUrl $ exportURL $ baseURL conn
   completeReq <- return $ (applyBasicAuth (DBSC.pack $ user conn)
@@ -84,42 +85,55 @@ requestWithParams conn params = fmap responseBody $ makeRequest conn
                   {baseURL = P.foldl (\u p -> add_param u p) (baseURL conn) params}
  
 
-list conn = fmap (Torrent . (\(Array a) -> DV.toList a) . fromJust . (Data.HashMap.Strict.lookup "torrents")
+list conn = fmap ((P.map Torrent) . (\(Array a) -> DV.toList a) . fromJust . (Data.HashMap.Strict.lookup "torrents")
                               . fromJust . (\s -> decode s :: Maybe Object))
               $ requestWithParams conn [("list", "1")]
 
-pause conn hash = requestWithParams conn [(hashParam, hash), (actionParam, "pause")]
-addUrl conn url = requestWithParams conn [("s", url), (actionParam, "add-url")]
+pause conn hash = requestWithParams conn [(hashParam, hash), (actionParam, "pause")] >> return ()
+addUrl conn url = requestWithParams conn [("s", url), (actionParam, "add-url")] >> return ()
 
 settingToParam (ProxySetType proxyType) = ("proxy.type", show . fromEnum $ proxyType)
 settingToParam (ProxyIP ip) =  ("proxy.proxy", ip)
 settingToParam (ProxyP2P isP2P) = ("proxy.p2p", show . fromBool $ isP2P)
-settingToParam (ProxyPort port) = ("proxy.port", show port) 
+settingToParam (ProxyPort (PortNumber n)) = ("proxy.port", show n) 
 
 
 --setProxySettings :: UTorrentConn -> [ProxySetting] -> IO ()
-setProxySettings conn settings =if' (settings == []) (return ()) $ do
+setSettings conn settings =if' (settings == []) (return ()) $ do
   requestWithParams conn $ P.reverse $ (actionParam, "setsetting") :
         (join $ P.map ((\(s, v) -> [("s", s), ("v", v)]) . settingToParam) settings)
   return ()
+
+getToken :: String -> String 
+getToken = (\(TagText t) -> t) . (!! 2) . parseTags 
+
 
 -- toy main function just for testing;
 -- TODO; throw away
 runTorrentClient = do
   conn <- uTorentConn "http://localhost:8080" "admin" ""
   liftIO $ debugM logger "made first connection"
-  r <- list conn
-  liftIO $ debugM logger $ show  r
   r2 <- addUrl conn archMagnet
   liftIO $ debugM logger $ "addUrl RESPONSE IS " ++  (show r2)
+  r <- list conn
+  liftIO $ debugM logger $ show r
   --r3 <- setProxySettings conn [ProxySetType Socks4, ProxyIP "127.0.0.69", ProxyPort 6969, ProxyP2P True]
   --liftIO $ debugM logger $ show $  r3
   return ()
 
 run = do
+  liftIO $ updateGlobalLogger logger (setLevel DEBUG)
   results <- runErrorT runTorrentClient
   P.putStrLn $ show results
   return ()
+
+
+{-
+instance TorrentClientConn UTorrentConn where
+  addMagnetLink = addUrl
+  listTorrents = list
+  pauseTorrent = pause
+-}
 {-
 
 set settings calls
