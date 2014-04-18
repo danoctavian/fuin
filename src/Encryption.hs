@@ -19,18 +19,35 @@ type Key = ByteString -- 32 bytes key
 type EncryptF = ByteString -> ByteString
 
 data ClientEncryption = ClientEncryption {
-                          bootstrapEncrypt :: EncryptF,
+                          bootstrapClientEncrypt :: EncryptF,
                           clientEncrypt :: EncryptF,
                           clientDecrypt :: EncryptF
                           }
                         
+
+data BootstrapServerEncryption = BootstrapServerEncryption {
+                            bootstrapServerEncrypt :: EncryptF,
+                            serverKey :: Key
+                          }
+
+data ServerEncryption = ServerEncryption {
+                          serverEncrypt :: EncryptF,
+                          serverDecrypt :: EncryptF
+                        }
+
 
 
 -- TODO: give proper implementation
 makeClientEncryption :: Key -> Key -> ClientEncryption
 makeClientEncryption clientKey serverKey
   = ClientEncryption id id id
-{-
+
+-- TODO: make proper implementation 
+makeServerEncryption :: BootstrapServerEncryption -> Key -> ServerEncryption
+makeServerEncryption serverEnc clientKey
+  = ServerEncryption id id
+
+
 c2w8 :: Char -> Word8
 c2w8 = fromIntegral . fromEnum
 charRangeStart :: Word8
@@ -53,7 +70,7 @@ genString g len = do
     return $ DB.pack str
 
 
--- this is probably incorrect - but it does prove there is more redundancy in the video file...
+-- this is probably incorrect - but it does kinda prove there is more redundancy in the video file...
 compareEntropy = do
   randStr <- makeRandomString
   P.putStrLn $ "random string: "-- ++ (show randStr)
@@ -73,4 +90,5 @@ entropy s =
 
 aes = initAES $ DBC.pack $ P.take 32 $ P.repeat 'c' 
 
--}
+
+x =decryptECB aes $ DB.concat [(DBC.pack $ P.replicate 32 'x'), encryptECB aes (DBC.pack $ P.replicate 32 'a')]

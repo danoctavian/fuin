@@ -61,6 +61,9 @@ dataHeader :: ByteString
 dataHeader = "DATA"
 
 
+type Send = (MonadIO m) => PackageStream.Message -> m ()
+type Receive = (MonadIO m) => m PackageStream.Message
+
 
 type OutgoingPipe = (TChan ByteString, TChan ByteString)
 type IncomingPipe = TChan ByteString
@@ -70,6 +73,9 @@ data Message = Data ByteString | SwitchChannel TorrentFile
   deriving (Eq, Show)
 
 
+sendMessage chan m = liftIO $ atomically $ writeTChan chan m
+receiveMessage chan = liftIO $ atomically $ readTChan chan
+
 instance Serialize PackageStream.Message where
   put (Data bs) = p8 0 *> putByteString bs
   put (SwitchChannel torrentFile) = p8 1  *> putByteString (BSC.pack torrentFile)
@@ -77,6 +83,17 @@ instance Serialize PackageStream.Message where
 
 getData = byte 0 *> (Data <$> (remaining >>= getByteString))
 getSwitch = byte 1 *> (SwitchChannel . BSC.unpack  <$> (remaining >>= getByteString))
+
+
+-- collect the packet in the given chan
+collectPacket chan bs = do 
+  liftIO $ atomically $ writeTChan chan bs
+  return bs 
+
+-- send packet through a chan and get it through the other
+transformPacket (inChan, outChan) bs = do
+  liftIO $ atomically $ writeTChan inChan bs
+  liftIO $ atomically $ readTChan outChan
 
 
 streamOutgoing :: (MonadIO m) =>

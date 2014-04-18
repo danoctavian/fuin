@@ -23,6 +23,7 @@ import Network.Socket
 import Control.Monad.Error
 import Control.Monad.Trans.Control
 import Control.Concurrent.STM
+import Control.Concurrent
 import Data.Map as DM
 import System.Timeout
 
@@ -30,6 +31,7 @@ import TorrentClient
 import PackageStream
 
 import Encryption
+
 
 data Transporter = Transporter {
                   makeConn :: (MonadFuinClient m, MonadError String m) => ServerInfo -> m ((Send, Receive))
@@ -57,8 +59,6 @@ data ServerInfo = ServerInfo {
                     serverSockAddr :: SockAddr}
 
 
-type Send = (MonadIO m) => Message -> m ()
-type Receive = (MonadIO m) => m Message
 
 type MonadFuinClient m = (MonadIO m, MonadBaseControl IO m)
  
@@ -70,7 +70,7 @@ init :: (MonadFuinClient m, MonadError String m) => PortID -> MakeTorrentClientC
 init port makeTorrentConn = do
   liftIO $ debugM Client.logger "initializing..."
   {-
-  liftIO $ Socks5Proxy.runServer $ Config {getPort = port,
+  liftIO $ forkIO $ Socks5Proxy.runServer $ Config {getPort = port,
                                     handleIncoming = (justPrint "incoming"), handleOutgoing = (justPrint "outgoing")}
 -}
 
@@ -89,26 +89,31 @@ init port makeTorrentConn = do
 
 makeConnection :: (MonadFuinClient m, MonadError String m) =>
                   TorrentClientConn -> TVar AddressDict -> ServerInfo -> m (Send, Receive)
-makeConnection torrentClient addressDict serverAddr = do
-  liftIO $ debugM Client.logger $ "make connection" ++ (show $ serverSockAddr serverAddr)
-  --TODO
-  -- write to tvar the new address that needs to be caught along with then channels to be picked up and used
+makeConnection torrentClient addressDict serverInfo = do
+  liftIO $ debugM Client.logger $ "make connection" ++ (show $ serverSockAddr serverInfo)
 
+  -- write to tvar the new address that needs to be caught along with then channels to be picked up and used
   -- create data channels
   [incomingPipe, inOutgoing, outOutgoing] <- replicateM 3 (liftIO $ atomically newTChan)
   control <- liftIO $ atomically newTChan
   liftIO $ atomically $  modifyTVar addressDict
-                      (insert (serverSockAddr serverAddr) (control, incomingPipe, (inOutgoing, outOutgoing)))
+                      (insert (serverSockAddr serverInfo) (control, incomingPipe, (inOutgoing, outOutgoing)))
 
   -- let the games begin 
-  addMagnetLink torrentClient (serverTorrentFile serverAddr)
+  addMagnetLink torrentClient (serverTorrentFile serverInfo)
   ping <- liftIO $ timeout btConnStartTimeout (liftIO $ atomically $ readTChan control)
   when (ping == Nothing) $ throwError "bittorrent connection start timeout"
 
+  [send, receive] <- replicateM 2 (liftIO $ atomically newTChan)
+  let encryption = clientEncyption serverInfo
   -- make message consuming threads
   -- outgoing : read message chan ; produce byte string blocks 
+  liftIO $ forkIO $ streamIncoming receive incomingPipe $ clientDecrypt encryption
   -- incoming : read bytestring - parse and push into message chan 
-  return undefined
+  liftIO $ forkIO $ streamOutgoing send (inOutgoing, outOutgoing) $ bootstrapClientEncrypt encryption
+
+  return (sendMessage send,  receiveMessage receive)
+
 
 
 clientSocks5Init :: TVar AddressDict -> InitHook
@@ -121,21 +126,15 @@ clientSocks5Init addresses clientSock serverSock = do
       -> do
         liftIO $ atomically $ writeTChan control Ping -- tell the owner of init that it has run
         return $ PacketHandlers
-          (pieceHandler $ clientIncoming inChan)
-          (pieceHandler $ clientOutgoing outgoingPipe)
+          (pieceHandler $ collectPacket inChan)
+          (pieceHandler $ transformPacket outgoingPipe)
 
-clientIncoming chan bs = do 
-  liftIO $ atomically $ writeTChan chan bs
-  return bs 
 
-clientOutgoing (inChan, outChan) bs = do
-  liftIO $ atomically $ writeTChan inChan bs
-  liftIO $ atomically $ readTChan outChan
 
 
 runClient :: (MonadIO io) => io ()
 runClient = do
     liftIO $ updateGlobalLogger Client.logger (setLevel DEBUG)
-  --  transporter <- Client.init $ PortNumber 1080
+
    -- makeConnection transporter $ ServerAddress (1 :: Word32) "muelagabori" $ SockAddrInet (portNumberle 6000) (1 :: Word32)
     return ()
