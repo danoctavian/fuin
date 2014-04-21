@@ -64,8 +64,10 @@ dataHeader = "DATA"
 type Send = (MonadIO m) => PackageStream.Message -> m ()
 type Receive = (MonadIO m) => m PackageStream.Message
 
+data Packet = Packet ByteString | Kill
+  deriving (Show, Eq)
 
-type OutgoingPipe = (TChan ByteString, TChan ByteString)
+type OutgoingPipe = (TChan Packet, TChan ByteString)
 type IncomingPipe = TChan ByteString
 type TorrentFile = String
 
@@ -94,7 +96,7 @@ collectPacket chan bs = do
 
 -- send packet through a chan and get it through the other
 transformPacket (inChan, outChan) bs = do
-  liftIO $ atomically $ writeTChan inChan bs
+  liftIO $ atomically $ writeTChan inChan (Packet bs)
   liftIO $ atomically $ readTChan outChan
 
 
@@ -107,17 +109,21 @@ streamOutgoing appMessages pipe encryption = do
 
 outgoingSink :: (MonadIO m) => OutgoingPipe -> Encryption -> Sink (Maybe ByteString) m Int
 outgoingSink (input, output) encryption = do
-  packet <- liftIO $ atomically $ readTChan input
-  bytes <- fmap BS.concat $ isolateWhileSmth (BS.length packet - (overhead encryption)) =$ CL.consume
-  let (encryptedPayload, newEncryption) = (applyEncryption encryption) $ insertPayload packet bytes
-  liftIO $ atomically $ writeTChan output $ encryptedPayload
-  outgoingSink (input, output) newEncryption
+  chanPacket <- liftIO $ atomically $ readTChan input
+  case chanPacket of
+    (Packet packet) -> do
+      bytes <- fmap BS.concat $ isolateWhileSmth (BS.length packet - (overhead encryption)) =$ CL.consume
+      let (encryptedPayload, newEncryption) = (applyEncryption encryption) $ insertPayload packet bytes
+      liftIO $ atomically $ writeTChan output $ encryptedPayload
+      outgoingSink (input, output) newEncryption
+    Kill -> return 0
 
 
 streamIncoming :: (MonadIO m, MonadThrow m) =>
     TChan PackageStream.Message -> IncomingPipe -> Decryption -> m ()
 streamIncoming appMessages pipe decryption = do
-  (chanSource pipe) $= (CL.map (decrypt decryption)) $= CL.filter (/= Nothing) $= CL.map fromJust
+  (chanSource pipe) $= (CL.map $ (decrypt decryption))
+        $= CL.filter (/= Nothing) $= CL.map fromJust
         $= (conduitParser parseMessage) $= (CL.map snd) $$ (chanSink appMessages)
   return ()
 
@@ -125,11 +131,16 @@ incomingPackageSource pipe decryption
   = (chanSource pipe) $= (CL.map (decrypt decryption)) $= CL.filter (/= Nothing) $= CL.map fromJust
         $= (conduitParser parseMessage) $= (CL.map snd) 
 
+
+-- kind of hacky but what to do...
 noOpStreamOutgoing :: (MonadIO m) => OutgoingPipe -> m ()
 noOpStreamOutgoing p@(input, output) = do
   packet <- liftIO $ atomically $ readTChan input
-  liftIO $ atomically $ writeTChan output $ packet
-  noOpStreamOutgoing p
+  case packet of 
+    Packet bs -> do
+      liftIO $ atomically $ writeTChan output $ bs
+      noOpStreamOutgoing p
+    Kill -> return () --be done with it
 
 -- only do it on a real payload; leave things untouched if there is nothing to send
 applyEncryption :: Encryption -> Either ByteString ByteString  -> (ByteString, Encryption)
@@ -243,6 +254,9 @@ parseMessage = do
   body <- DAC.take n
   return $ PackageStream.Data body
 
+
+dataFromPacket :: Packet -> ByteString
+dataFromPacket (Packet bs) = bs
 
 -- toy crap from here onwards 
 

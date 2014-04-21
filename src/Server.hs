@@ -38,7 +38,7 @@ import Encryption
 
 logger = "fuin.server"
 
-type MonadFuinServer m = (MonadIO m, MonadBaseControl IO m)
+type MonadFuinServer m = (MonadIO m)
 type HandleConnection = (MonadFuinServer m) => (Send, Receive) -> m ()
 
 runReverseProxy :: (MonadIO m) => PortID  -> PortID -> InitHook -> m ()
@@ -60,12 +60,12 @@ run handleConnection bootstrapEnc = do
 
 serverReverseProxyInit :: HandleConnection -> BootstrapServerEncryption -> InitHook
 serverReverseProxyInit handleConnection bootstrapEnc clientSock serverSock = do
-  [incomingPipe, outgoingIn, outgoingOut] <- replicateM 3 (liftIO $ atomically newTChan)
-  let outgoingPipe = (outgoingIn, outgoingOut)
-  [sendChan, receiveChan] <- replicateM 2 (liftIO $ atomically newTChan)
-
+  [incomingPipe, outgoingOut] <- replicateM 2 (liftIO $ atomically newTChan)
+  outgoingIn <- (liftIO $ atomically newTChan)
+  let outgoingPipe = (outgoingIn, outgoingOut) :: (TChan Packet, TChan ByteString)
   -- TODO; receive packets until you get the bootstrap package or timeout is reached
-  liftIO $ forkIO $ checkForClientConn incomingPipe outgoingPipe bootstrapEnc
+  liftIO $ forkIO $ checkForClientConn incomingPipe outgoingPipe bootstrapEnc $
+                    makeClientConn incomingPipe outgoingPipe handleConnection
   -- while just forwarding the sent packages...
   liftIO $ forkIO $ noOpStreamOutgoing outgoingPipe
 
@@ -77,14 +77,14 @@ serverReverseProxyInit handleConnection bootstrapEnc clientSock serverSock = do
   }
 
 
-
-checkForClientConn incomingPipe outgoingPipe bootstrapEnc = do
+checkForClientConn incomingPipe (inputOutgoing, outputOutgoing) bootstrapEnc makeConnection = do
   greeting <- liftIO $ timeout (10 ^ 7) $ (incomingPackageSource incomingPipe
                                       (bootstrapServerDecrypt bootstrapEnc)) $$ (DCL.take 1)
   case greeting of
-    Just [ClientGreeting bs] ->
-      do liftIO $ debugM Server.logger "got a good result lads!" 
-        
+    Just [ClientGreeting bs] -> do
+      liftIO $ debugM Server.logger "got a good result lads!" 
+      liftIO $ atomically $ writeTChan inputOutgoing Kill -- kill the noOp thread
+      makeConnection $ makeServerEncryption bootstrapEnc bs
     _ ->  liftIO $ do
         debugM Server.logger "it's not a client connection. run a normal proxy."
         -- TODO: clean this up... it's a waste of computation
@@ -92,6 +92,17 @@ checkForClientConn incomingPipe outgoingPipe bootstrapEnc = do
   return ()
 
 
+makeClientConn :: (MonadFuinServer m) => IncomingPipe -> OutgoingPipe ->
+                  HandleConnection -> ServerEncryption -> m ()
+makeClientConn incomingPipe outgoingPipe handleConnection encryption
+  = do
+    [sendChan, receiveChan] <- replicateM 2 (liftIO $ atomically newTChan)
+    liftIO $ forkIO $ streamOutgoing sendChan outgoingPipe (serverEncrypt encryption)
+    liftIO $ forkIO $ streamIncoming receiveChan incomingPipe (serverDecrypt encryption)
+
+    -- call the custom connection handler
+    handleConnection ((sendMessage sendChan), (receiveMessage receiveChan))
+    return ()
 
 
 {-

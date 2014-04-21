@@ -45,7 +45,8 @@ data ClientEncryption = ClientEncryption {
 
 data BootstrapServerEncryption = BootstrapServerEncryption {
                             bootstrapServerDecrypt :: Decryption,
-                            serverKey :: Key
+                            serverKey :: Key,
+                            serverSeediv :: IV
                           }
 
 data ServerEncryption = ServerEncryption {
@@ -78,9 +79,9 @@ makeDecryption key = Decryption {decrypt = \bs -> let len = DB.length magicalHea
 
 
 -- TODO: make proper implementation 
-makeServerEncryption :: IV -> BootstrapServerEncryption -> Key -> ServerEncryption
-makeServerEncryption iv serverEnc clientKey
-  = ServerEncryption (makeEncryption sharedSecret iv) (makeDecryption sharedSecret)
+makeServerEncryption :: BootstrapServerEncryption -> Key -> ServerEncryption
+makeServerEncryption serverEnc clientKey
+  = ServerEncryption (makeEncryption sharedSecret (serverSeediv serverEnc)) (makeDecryption sharedSecret)
     where
       sharedSecret = makeSharedSecret clientKey (serverKey serverEnc)
 

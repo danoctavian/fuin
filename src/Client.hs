@@ -94,7 +94,8 @@ makeConnection torrentClient addressDict serverInfo = do
 
   -- write to tvar the new address that needs to be caught along with then channels to be picked up and used
   -- create data channels
-  [incomingPipe, inOutgoing, outOutgoing] <- replicateM 3 (liftIO $ atomically newTChan)
+  [incomingPipe, outOutgoing] <- replicateM 2 (liftIO $ atomically newTChan)
+  inOutgoing <- liftIO $ atomically newTChan
   control <- liftIO $ atomically newTChan
   liftIO $ atomically $  modifyTVar addressDict
                       (insert (serverSockAddr serverInfo) (control, incomingPipe, (inOutgoing, outOutgoing)))
