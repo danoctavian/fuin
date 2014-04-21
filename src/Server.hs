@@ -9,6 +9,7 @@ module Server where
 
 import Prelude as P
 import Utils
+import Control.Monad
 import Control.Monad.IO.Class
 import Socks5Proxy
 import Network
@@ -30,6 +31,8 @@ import System.Timeout
 import TorrentClient
 import PackageStream
 import Socks5Proxy
+import Data.Conduit
+import Data.Conduit.List as DCL
 
 import Encryption
 
@@ -61,12 +64,36 @@ serverReverseProxyInit handleConnection bootstrapEnc clientSock serverSock = do
   let outgoingPipe = (outgoingIn, outgoingOut)
   [sendChan, receiveChan] <- replicateM 2 (liftIO $ atomically newTChan)
 
+  -- TODO; receive packets until you get the bootstrap package or timeout is reached
+  liftIO $ forkIO $ checkForClientConn incomingPipe outgoingPipe bootstrapEnc
+  -- while just forwarding the sent packages...
+  liftIO $ forkIO $ noOpStreamOutgoing outgoingPipe
+
   return $ PacketHandlers {
    -- incoming packets are packets from the Bittorrent reverse proxied server
     incoming = (pieceHandler $ transformPacket outgoingPipe),
     outgoing = (pieceHandler $ collectPacket incomingPipe)
     -- outgoing packets are packets send by the connection initiator, which is the client
   }
+
+
+
+checkForClientConn incomingPipe outgoingPipe bootstrapEnc = do
+  greeting <- liftIO $ timeout (10 ^ 7) $ (incomingPackageSource incomingPipe
+                                      (bootstrapServerDecrypt bootstrapEnc)) $$ (DCL.take 1)
+  case greeting of
+    Just [ClientGreeting bs] ->
+      do liftIO $ debugM Server.logger "got a good result lads!" 
+        
+    _ ->  liftIO $ do
+        debugM Server.logger "it's not a client connection. run a normal proxy."
+        -- TODO: clean this up... it's a waste of computation
+        forever (liftIO $ atomically $ readTChan incomingPipe) -- just emtpying the chan...
+  return ()
+
+
+
+
 {-
 init: start reverse proxy
 <no torrent client settings atm>

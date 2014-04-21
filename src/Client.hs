@@ -110,7 +110,10 @@ makeConnection torrentClient addressDict serverInfo = do
   -- outgoing : read message chan ; produce byte string blocks 
   liftIO $ forkIO $ streamIncoming receive incomingPipe $ clientDecrypt encryption
   -- incoming : read bytestring - parse and push into message chan 
-  liftIO $ forkIO $ streamOutgoing send (inOutgoing, outOutgoing) $ bootstrapClientEncrypt encryption
+  -- TODO; add the bootstrap encryption and then switch from it 
+  liftIO $ forkIO $ streamOutgoing send (inOutgoing, outOutgoing) $ clientEncrypt encryption
+
+  sendMessage send $ ClientGreeting $ bootstrapData encryption
 
   return (sendMessage send,  receiveMessage receive)
 

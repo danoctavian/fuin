@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Encryption where
 
 import Crypto.Cipher.AES
@@ -12,42 +14,78 @@ import System.IO
 import Data.ByteString as DB
 import Data.Word (Word8)
 
--- measure entropy of video file vs random file
+import Utils
+
+{-
+TODO verify if using AES directly is the way to go.
+i need methods for veryfying something is decryptable
+i need to check for tampering (similar to above i guess)
+need 
+-}
+
+magicalHeader :: ByteString
+magicalHeader = "MAGIC"
 
 type Key = ByteString -- 32 bytes key
 
-type EncryptF = ByteString -> ByteString
+type Encrypt = ByteString -> (ByteString, Encryption)
+type Decrypt = ByteString -> Maybe ByteString
+type IV = ByteString
+
+data Encryption = Encryption {encrypt :: Encrypt, overhead :: Int}
+data Decryption = Decryption {decrypt :: Decrypt}
 
 data ClientEncryption = ClientEncryption {
-                          bootstrapClientEncrypt :: EncryptF,
-                          clientEncrypt :: EncryptF,
-                          clientDecrypt :: EncryptF
+                            bootstrapClientEncrypt :: Encryption,
+                            clientEncrypt :: Encryption,
+                            clientDecrypt :: Decryption,
+                            bootstrapData :: ByteString
                           }
                         
 
 data BootstrapServerEncryption = BootstrapServerEncryption {
-                            bootstrapServerEncrypt :: EncryptF,
+                            bootstrapServerDecrypt :: Decryption,
                             serverKey :: Key
                           }
 
 data ServerEncryption = ServerEncryption {
-                          serverEncrypt :: EncryptF,
-                          serverDecrypt :: EncryptF
+                          serverEncrypt :: Encryption,
+                          serverDecrypt :: Decryption
                         }
 
-
-
 -- TODO: give proper implementation
-makeClientEncryption :: Key -> Key -> ClientEncryption
-makeClientEncryption clientKey serverKey
-  = ClientEncryption id id id
+makeClientEncryption :: Key -> Key -> IV -> ClientEncryption
+makeClientEncryption clientKey serverKey iv
+  = ClientEncryption (makeEncryption serverKey iv) (makeEncryption sharedSecret iv)
+                    (makeDecryption sharedSecret) clientKey
+    where
+      sharedSecret = makeSharedSecret clientKey serverKey
+
+
+-- TODO: implement properly
+makeSharedSecret :: Key -> Key -> Key
+makeSharedSecret client server = client
+
+makeEncryption :: Key -> IV -> Encryption
+makeEncryption key iv = Encryption {encrypt = headerEnc, overhead = undefined}
+  where
+    headerEnc bs = (DB.concat [magicalHeader, bs], makeEncryption key iv)
+
+makeDecryption :: Key -> Decryption
+makeDecryption key = Decryption {decrypt = \bs -> let len = DB.length magicalHeader in
+                                                  if' (DB.take len bs == magicalHeader)
+                                                      (Just $ DB.drop len bs) Nothing}
+
 
 -- TODO: make proper implementation 
-makeServerEncryption :: BootstrapServerEncryption -> Key -> ServerEncryption
-makeServerEncryption serverEnc clientKey
-  = ServerEncryption id id
+makeServerEncryption :: IV -> BootstrapServerEncryption -> Key -> ServerEncryption
+makeServerEncryption iv serverEnc clientKey
+  = ServerEncryption (makeEncryption sharedSecret iv) (makeDecryption sharedSecret)
+    where
+      sharedSecret = makeSharedSecret clientKey (serverKey serverEnc)
 
 
+-- measure entropy of video file vs random file
 c2w8 :: Char -> Word8
 c2w8 = fromIntegral . fromEnum
 charRangeStart :: Word8
@@ -91,4 +129,10 @@ entropy s =
 aes = initAES $ DBC.pack $ P.take 32 $ P.repeat 'c' 
 
 
-x =decryptECB aes $ DB.concat [(DBC.pack $ P.replicate 32 'x'), encryptECB aes (DBC.pack $ P.replicate 32 'a')]
+x =decryptECB aes $ DB.concat [(DBC.pack $ P.replicate 32 'x'), encryptECB aes sampleText]
+
+sampleText = DBC.pack $ P.replicate 32 'a'
+iv = DBC.pack $ P.replicate 32 'y'
+doGCM = (enc, decryptGCM aes iv DBC.empty $ fst enc)
+  where
+    enc = encryptGCM aes iv DBC.empty sampleText

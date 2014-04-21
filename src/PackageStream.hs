@@ -69,7 +69,7 @@ type OutgoingPipe = (TChan ByteString, TChan ByteString)
 type IncomingPipe = TChan ByteString
 type TorrentFile = String
 
-data Message = Data ByteString | SwitchChannel TorrentFile
+data Message = Data ByteString | SwitchChannel TorrentFile | ClientGreeting ByteString
   deriving (Eq, Show)
 
 
@@ -79,10 +79,12 @@ receiveMessage chan = liftIO $ atomically $ readTChan chan
 instance Serialize PackageStream.Message where
   put (Data bs) = p8 0 *> putByteString bs
   put (SwitchChannel torrentFile) = p8 1  *> putByteString (BSC.pack torrentFile)
+  put (ClientGreeting bs) = p8 2 *> putByteString bs
   get =  getData <|> getSwitch
 
 getData = byte 0 *> (Data <$> (remaining >>= getByteString))
 getSwitch = byte 1 *> (SwitchChannel . BSC.unpack  <$> (remaining >>= getByteString))
+getGreeting = byte 2 *> (ClientGreeting <$> (remaining >>= getByteString))
 
 
 -- collect the packet in the given chan
@@ -97,33 +99,50 @@ transformPacket (inChan, outChan) bs = do
 
 
 streamOutgoing :: (MonadIO m) =>
-    TChan PackageStream.Message -> OutgoingPipe -> EncryptF -> m ()
-streamOutgoing appMessages pipe encrypt = do
-  tryChanSource appMessages =$ CL.map (fmap (streamFormat . DS.encode))  $$ (outgoingSink pipe encrypt)
+    TChan PackageStream.Message -> OutgoingPipe -> Encryption -> m ()
+streamOutgoing appMessages pipe encryption = do
+  tryChanSource appMessages =$ CL.map (fmap (streamFormat . DS.encode))  $$ (outgoingSink pipe encryption)
   return ()
 
 
-outgoingSink :: (MonadIO m) => OutgoingPipe -> EncryptF -> Sink (Maybe ByteString) m Int
-outgoingSink (input, output) encrypt = do
+outgoingSink :: (MonadIO m) => OutgoingPipe -> Encryption -> Sink (Maybe ByteString) m Int
+outgoingSink (input, output) encryption = do
   packet <- liftIO $ atomically $ readTChan input
-  bytes <- fmap BS.concat $ isolateWhileSmth (BS.length packet) =$ CL.consume
-  liftIO $ atomically $ writeTChan output $ encrypt $ insertPayload packet bytes
-  outgoingSink (input, output) encrypt
+  bytes <- fmap BS.concat $ isolateWhileSmth (BS.length packet - (overhead encryption)) =$ CL.consume
+  let (encryptedPayload, newEncryption) = (applyEncryption encryption) $ insertPayload packet bytes
+  liftIO $ atomically $ writeTChan output $ encryptedPayload
+  outgoingSink (input, output) newEncryption
 
 
 streamIncoming :: (MonadIO m, MonadThrow m) =>
-    TChan PackageStream.Message -> IncomingPipe -> EncryptF -> m ()
-streamIncoming appMessages pipe decrypt = do
-  (chanSource pipe) $= (CL.map decrypt) $= (conduitParser parseMessage) $= (CL.map snd) $$ (chanSink appMessages)
+    TChan PackageStream.Message -> IncomingPipe -> Decryption -> m ()
+streamIncoming appMessages pipe decryption = do
+  (chanSource pipe) $= (CL.map (decrypt decryption)) $= CL.filter (/= Nothing) $= CL.map fromJust
+        $= (conduitParser parseMessage) $= (CL.map snd) $$ (chanSink appMessages)
   return ()
-  
+
+incomingPackageSource pipe decryption
+  = (chanSource pipe) $= (CL.map (decrypt decryption)) $= CL.filter (/= Nothing) $= CL.map fromJust
+        $= (conduitParser parseMessage) $= (CL.map snd) 
+
+noOpStreamOutgoing :: (MonadIO m) => OutgoingPipe -> m ()
+noOpStreamOutgoing p@(input, output) = do
+  packet <- liftIO $ atomically $ readTChan input
+  liftIO $ atomically $ writeTChan output $ packet
+  noOpStreamOutgoing p
+
+-- only do it on a real payload; leave things untouched if there is nothing to send
+applyEncryption :: Encryption -> Either ByteString ByteString  -> (ByteString, Encryption)
+applyEncryption e (Left oldPacket) = (oldPacket, e)
+applyEncryption e (Right payload) = encrypt e payload 
 
 
-insertPayload :: ByteString -> ByteString -> ByteString
+-- return Left s with the package unchanged if no payload exists1
+insertPayload :: ByteString -> ByteString -> Either ByteString ByteString
 insertPayload oldPacket payload
-  | lenPayload == 0 = oldPacket
-  | lenPayload == lenOldPacket = payload
-  | lenPayload < lenOldPacket = BS.concat [payload, padding (lenOldPacket - lenPayload)]
+  | lenPayload == 0 = Left oldPacket
+  | lenPayload == lenOldPacket = Right payload
+  | lenPayload < lenOldPacket = Right $ BS.concat [payload, padding (lenOldPacket - lenPayload)]
   | otherwise = error "len payload < len oldpacket"
     where
       lenPayload = BS.length payload
