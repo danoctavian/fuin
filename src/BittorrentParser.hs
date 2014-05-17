@@ -19,8 +19,6 @@ import Data.Serialize.Get
 import Data.Word
 import Data.Char
 import System.IO
-
-
 --import ConsoleP
 --import Torrent
 

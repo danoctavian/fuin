@@ -119,17 +119,19 @@ outgoingSink (input, output) encryption = do
     Kill -> return 0
 
 
+
 streamIncoming :: (MonadIO m, MonadThrow m) =>
     TChan PackageStream.Message -> IncomingPipe -> Decryption -> m ()
 streamIncoming appMessages pipe decryption = do
-  (chanSource pipe) $= (CL.map $ (decrypt decryption))
-        $= CL.filter (/= Nothing) $= CL.map fromJust
-        $= (conduitParser parseMessage) $= (CL.map snd) $$ (chanSink appMessages)
+  liftIO $ debugM PackageStream.logger "streaming incoming traffic"
+  incomingPackageSource pipe decryption $$ (chanSink appMessages)
   return ()
 
 incomingPackageSource pipe decryption
   = (chanSource pipe) $= (CL.map (decrypt decryption)) $= CL.filter (/= Nothing) $= CL.map fromJust
-        $= (conduitParser parseMessage) $= (CL.map snd) 
+        $= CL.mapM (\m -> (liftIO $ debugM PackageStream.logger $ "message incoming " ++ show m) >> return m)
+        $= (conduitParser parseMessage) $= (CL.map snd) $=
+        (CL.filter isRight) $= (CL.map fromRight)
 
 
 -- kind of hacky but what to do...
@@ -246,13 +248,13 @@ pieceHandler trans bs = do
   -}
 
 -- message between server and client
-parseMessage :: Parser PackageStream.Message
+parseMessage :: Parser (Either String PackageStream.Message)
 parseMessage = do
   string messageHeader
-  n <- DAC.decimal
+  n <- fmap (\i -> (fromRight $ DS.decode i) :: Int) $ DAC.take 8
   string dataHeader
   body <- DAC.take n
-  return $ PackageStream.Data body
+  return $ DS.decode body
 
 
 dataFromPacket :: Packet -> ByteString
@@ -311,7 +313,7 @@ bytesink = do
   bytesink
 
 
-parseSink :: (MonadIO m) => Sink (PositionRange, PackageStream.Message) m ByteString
+parseSink :: (MonadIO m) => Sink (PositionRange, Either String PackageStream.Message) m ByteString
 parseSink = do
   msg <- await
   liftIO $ P.putStrLn $ show msg
@@ -322,7 +324,6 @@ parseSink = do
 --runStream :: IO ()
 runStream = do
   liftIO $ P.putStrLn "running stream"
-
   res <- parseByteSource $= (CL.map id) $= (conduitParser parseMessage) $$ parseSink
   return ()
 
@@ -331,3 +332,5 @@ runMaybeStreamTest = do
   res <- maybeByteSource $$ maybeByteSink
   return ()
 
+
+samplePackage01 = "MSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL!DATA\STX\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOHMSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL%DATA\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH"

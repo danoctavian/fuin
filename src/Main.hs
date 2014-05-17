@@ -7,6 +7,8 @@ import PackageStream
 import Client
 import ChanExample
 import Server
+import FakeClient
+import FakeServer
 {-
 
 ISSUES 

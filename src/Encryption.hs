@@ -62,13 +62,17 @@ makeClientEncryption clientKey serverKey iv
     where
       sharedSecret = makeSharedSecret clientKey serverKey
 
+makeServerBootstrapEncryption :: Key -> IV -> BootstrapServerEncryption
+makeServerBootstrapEncryption key iv 
+  = BootstrapServerEncryption (makeDecryption key) key iv
+
 
 -- TODO: implement properly
 makeSharedSecret :: Key -> Key -> Key
 makeSharedSecret client server = client
 
 makeEncryption :: Key -> IV -> Encryption
-makeEncryption key iv = Encryption {encrypt = headerEnc, overhead = undefined}
+makeEncryption key iv = Encryption {encrypt = headerEnc, overhead = DB.length magicalHeader}
   where
     headerEnc bs = (DB.concat [magicalHeader, bs], makeEncryption key iv)
 
@@ -85,6 +89,10 @@ makeServerEncryption serverEnc clientKey
     where
       sharedSecret = makeSharedSecret clientKey (serverKey serverEnc)
 
+
+-- fake keys
+
+fakeKey = DB.replicate 32 (fromIntegral 1)
 
 -- measure entropy of video file vs random file
 c2w8 :: Char -> Word8

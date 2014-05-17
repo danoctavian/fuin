@@ -64,20 +64,19 @@ type MonadFuinClient m = (MonadIO m, MonadBaseControl IO m)
  
 -- constants
 logger = "fuin.client"  
-btConnStartTimeout = 5 * 10 ^ 6 -- microseconds
+btConnStartTimeout = 10 * 15 ^ 6 -- microseconds
 
 init :: (MonadFuinClient m, MonadError String m) => PortID -> MakeTorrentClientConn -> m (Transporter)
 init port makeTorrentConn = do
   liftIO $ debugM Client.logger "initializing..."
-  {-
-  liftIO $ forkIO $ Socks5Proxy.runServer $ Config {getPort = port,
-                                    handleIncoming = (justPrint "incoming"), handleOutgoing = (justPrint "outgoing")}
--}
+
+  addressDict <- liftIO $ newTVarIO DM.empty
+  liftIO $ forkIO $ Socks5Proxy.runServer $ Config {listenPort = port, initHook = clientSocks5Init addressDict,
+                                    getConn = doSocksHandshake}
 
   torrentClient <- makeTorrentConn
   setProxySettings torrentClient [ProxySetType Socks4, ProxyIP localhost, ProxyPort $ port, ProxyP2P True]
   
-  addressDict <- liftIO $ newTVarIO DM.empty
   {-
   <startUTorrentServer>
   -- connect
@@ -124,8 +123,12 @@ clientSocks5Init :: TVar AddressDict -> InitHook
 clientSocks5Init addresses clientSock serverSock = do
   liftIO $ debugM Client.logger $ "running initialization in socks5"
   addressDict <- liftIO $ readTVarIO addresses
+  liftIO $ debugM Client.logger $ "socks5 proxy is meant to connect to "
+        P.++ (show serverSock) P.++ " while the address record contains " P.++ (show $ keys addressDict)
   case DM.lookup serverSock addressDict of
-    Nothing -> return $ idPacketHandlers
+    Nothing -> do
+      liftIO $ debugM Client.logger $ "new socks5 connection is not a fuin connection"
+      return $ idPacketHandlers
     Just (control, inChan, outgoingPipe)
       -> do
         liftIO $ atomically $ writeTChan control Ping -- tell the owner of init that it has run

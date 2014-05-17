@@ -10,6 +10,7 @@ import Data.Serialize
 import Data.Serialize.Put
 import Data.Serialize.Get
 import Network.Socket
+import Data.List.Split as DLS
 
 localhost = "localhost"
 
@@ -67,3 +68,11 @@ toggleEndianW16 = fromRight . (runGet getWord16be) . runPut . putWord16le
 portNumberle :: Word16 -> PortNumber
 portNumberle = PortNum . toggleEndianW16 
 
+readIPv4 :: String -> Word32
+readIPv4 s = word8sToWord32 $ P.map (\s -> read s :: Word8) $ DLS.splitOn "." s
+
+-- little endian? fuck this shit idk it just works
+word8sToWord32 :: [Word8] -> Word32
+word8sToWord32 bytes =  sum $ P.zipWith (*)
+                      ((P.take (P.length bytes)) $ powers (2 ^ 8)) 
+                      (P.map toWord32 bytes)

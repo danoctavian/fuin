@@ -56,7 +56,7 @@ idPacketHandlers = PacketHandlers return return
 -- client sock -> remote server sock -> handlers
 type InitHook = (MonadIO m) => SockAddr -> SockAddr -> m PacketHandlers
 type GetConn = (Data.String.IsString e, MonadIO m, MonadError e m, Functor m) => Socket -> m Connection
-data Config = Config {getPort :: PortID, initHook :: InitHook, getConn :: GetConn}
+data Config = Config {listenPort :: PortID, initHook :: InitHook, getConn :: GetConn}
 
 type Method = Char
 data ClientHandshake = CH Char [Method]
@@ -78,24 +78,23 @@ atypCodes = ['\1', '\3', '\4']
 toCMD c = lookup c $ L.zip cmdCodes [CONNECT, BIND, UDPASSOCIATE]
 toATYP a = lookup a $ L.zip atypCodes [IPV4, DOMAINNAME, IPV6]
 
+logger = "fuin.socks5"
 
 runServer :: (MonadIO io) => Config -> io ()
 runServer config = liftIO $ withSocketsDo $  do
-  liftIO $ P.putStrLn "Starting server"
-  sock <- listenOn $ (Socks5Proxy.getPort config)
+  liftIO $ debugM Socks5Proxy.logger "Starting server"
+  sock <- listenOn $ (Socks5Proxy.listenPort config)
   loop config sock
 
 
 justPrint :: (Show s, MonadIO m) => String -> s -> m s 
 justPrint  flag bs = do
-  liftIO $ P.putStrLn flag
-  liftIO $ P.putStrLn $ show bs
+  liftIO $ debugM Socks5Proxy.logger flag
+  liftIO $ debugM Socks5Proxy.logger $ show bs
   return bs
 
 printerInit _ _ = return $ PacketHandlers (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!") 
 noOpInit _ _ = return $ PacketHandlers return return
-
-
 
 loop config serverSock = do
   (clientSock, addr) <- accept serverSock
@@ -114,14 +113,14 @@ doSocksHandshake conn = do
 handleReq config (sock, addr) = do
   eitherConnRequest <- runErrorT $ (getConn config $ sock)
   case eitherConnRequest of
-    Left err -> P.putStrLn err 
+    Left err -> debugM Socks5Proxy.logger err 
     Right c -> handleConnection c (sock, addr) config
   -- TODO: add code for catching exceptions when connections is broken
-  P.putStrLn "done showing"
+  debugM Socks5Proxy.logger "done showing"
   Network.Socket.sClose sock
 
 handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) config = do
-  P.putStrLn "handling connection"
+  debugM Socks5Proxy.logger "handling connection"
   {-}
   let addr = getStrAddress atyp bsAddr
   addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show $ sockAddrPort ) 
@@ -132,7 +131,7 @@ handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) c
     of whatever i write in port number; but here it goes but whatever gets here is endianness adjusted
     essentially the PortNumber thing assumes what is given to it is big endian (network byte order)
     and turns it into little endian (host byte order) -}
-  P.putStrLn $ "address is " ++ (show serverSockAddr)
+  debugM Socks5Proxy.logger $ "address is " ++ (show serverSockAddr)
   connect serverSock serverSockAddr
   handlers <- (initHook config) clientAddr serverSockAddr 
 {-
@@ -240,14 +239,6 @@ toHostAddress6 bs =if' (DatB.length bs == 4 * word32Size)
                     in Just (ws!!0, ws!!1, ws!!2, ws!!3))
                    Nothing
 
--- little endian? fuck this shit idk it just works
-word8sToWord32 :: [Word8] -> Word32
-word8sToWord32 bytes =  sum $ L.zipWith (*)
-                      ((L.take (L.length bytes)) $ powers (2 ^ 8)) 
-                      (L.map toWord32 bytes)
-
-readIPv4 :: String -> Word32
-readIPv4 s = word8sToWord32 $ L.map (\s -> read s :: Word8) $ DLS.splitOn "." s
 
 sockAddrPort :: SockAddr -> PortNumber
 sockAddrPort (SockAddrInet p _) = p

@@ -41,6 +41,16 @@ logger = "fuin.server"
 type MonadFuinServer m = (MonadIO m)
 type HandleConnection = (MonadFuinServer m) => (Send, Receive) -> m ()
 
+
+-- TODO: figure out port/port-range for which to reverse proxy
+-- need to know how bittorrent finds ot where to connect to a certain peer (DHT?)
+run :: (MonadFuinServer m) => HandleConnection -> PortID -> PortID -> BootstrapServerEncryption -> m ()
+run handleConnection publicPort internalPort bootstrapEnc = do
+  liftIO $ debugM Server.logger "running fuin server..."
+  runReverseProxy publicPort internalPort $
+                    serverReverseProxyInit handleConnection bootstrapEnc -- magic ports; standard bittorrent port + magic bittorrent client port
+  
+
 runReverseProxy :: (MonadIO m) => PortID  -> PortID -> InitHook -> m ()
 runReverseProxy listenPort targetPort initHook
   = runServer (Config  listenPort initHook
@@ -48,18 +58,9 @@ runReverseProxy listenPort targetPort initHook
                   (PortNum $ toggleEndianW16 ((\(PortNumber n) -> fromIntegral n :: Word16) targetPort))
                    $ readIPv4 "127.0.0.1"))
 
--- TODO: figure out port/port-range for which to reverse proxy
--- need to know how bittorrent finds ot where to connect to a certain peer (DHT?)
-run :: (MonadFuinServer m) => HandleConnection -> BootstrapServerEncryption -> m ()
-run handleConnection bootstrapEnc = do
-  liftIO $ forkIO $ runReverseProxy (PortNumber 6881) (PortNumber 3333) $
-                    serverReverseProxyInit handleConnection bootstrapEnc -- magic ports; standard bittorrent port + magic bittorrent client port
-  return ()
-
-
-
 serverReverseProxyInit :: HandleConnection -> BootstrapServerEncryption -> InitHook
 serverReverseProxyInit handleConnection bootstrapEnc clientSock serverSock = do
+  liftIO $ debugM Server.logger "initializing reverse proxy connection..."
   [incomingPipe, outgoingOut] <- replicateM 2 (liftIO $ atomically newTChan)
   outgoingIn <- (liftIO $ atomically newTChan)
   let outgoingPipe = (outgoingIn, outgoingOut) :: (TChan Packet, TChan ByteString)
@@ -78,8 +79,10 @@ serverReverseProxyInit handleConnection bootstrapEnc clientSock serverSock = do
 
 
 checkForClientConn incomingPipe (inputOutgoing, outputOutgoing) bootstrapEnc makeConnection = do
+  liftIO $ debugM Server.logger "reading greeting message..."
   greeting <- liftIO $ timeout (10 ^ 7) $ (incomingPackageSource incomingPipe
                                       (bootstrapServerDecrypt bootstrapEnc)) $$ (DCL.take 1)
+  liftIO $ debugM Server.logger "got something for a greeting"
   case greeting of
     Just [ClientGreeting bs] -> do
       liftIO $ debugM Server.logger "got a good result lads!" 
@@ -118,8 +121,10 @@ in init - need to check that the connection is the type we wanted
   seems simpler than the client
 -}
 
+{-
 runFuinServer :: (MonadIO m) => m ()
 runFuinServer = do
   liftIO $ updateGlobalLogger Server.logger (setLevel DEBUG)
   liftIO $ debugM Server.logger "running server.."
   return ()
+  -}
