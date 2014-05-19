@@ -126,9 +126,7 @@ runFuinClient = do
     Client.makeConn transporter info
   case connResult of
     Right (send, recv) -> do
-      liftIO $ debugM FakeClient.logger "writing message to server "
-      send $ Data $ DBC.pack "this is the client motherfucker"
-      serverMsg <- recv
+      testCommunicationClient (send, recv)
       return ()
     Left errMsg ->
       liftIO $ errorM FakeClient.logger $ "connection failed with " P.++ (show errMsg)
@@ -146,6 +144,15 @@ runFuinServer = do
 setupLoggers
   = forM [FakeClient.logger, Socks5Proxy.logger, PackageStream.logger, Client.logger, Server.logger] 
       (\lg -> liftIO $ updateGlobalLogger lg (setLevel DEBUG))
+
+
+testCommunicationClient ch@(send, recv) = do
+  liftIO $ debugM FakeClient.logger "writing message to server "
+  send $ Data $ DBC.pack "this is the client motherfucker"
+  serverMsg <- recv
+  liftIO $ debugM FakeClient.logger $ "received message from server  " P.++ (show serverMsg)
+  liftIO $ threadDelay $ 10 ^ 6
+  testCommunicationClient ch
 
 echoHandleConn :: HandleConnection
 echoHandleConn chans@(send, receive)

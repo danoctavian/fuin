@@ -82,7 +82,7 @@ instance Serialize PackageStream.Message where
   put (Data bs) = p8 0 *> putByteString bs
   put (SwitchChannel torrentFile) = p8 1  *> putByteString (BSC.pack torrentFile)
   put (ClientGreeting bs) = p8 2 *> putByteString bs
-  get =  getData <|> getSwitch
+  get =  getData <|> getSwitch <|> getGreeting
 
 getData = byte 0 *> (Data <$> (remaining >>= getByteString))
 getSwitch = byte 1 *> (SwitchChannel . BSC.unpack  <$> (remaining >>= getByteString))
@@ -169,7 +169,8 @@ noDataMessage = streamFormat $ (BSC.pack "")
 -- TODO: fix this flaw:
 -- padding will have a minimum size of length noDataMessage 
 -- How to: push back into the channel the unconsumed bytes of the padding they will be picked up
-padding size = streamFormat $ BS.replicate (size - (BS.length noDataMessage)) (1 :: Word8)
+-- padding contains bytes of data that are meant to fail when attempted to be deserialized -hence the 69
+padding size = streamFormat $ BS.replicate (size - (BS.length noDataMessage)) (69 :: Word8)
 {-
 data Message = Message ByteString
   deriving Show
@@ -334,3 +335,7 @@ runMaybeStreamTest = do
 
 
 samplePackage01 = "MSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL!DATA\STX\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOHMSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL%DATA\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH"
+
+testParseMsg = parse parseMessage samplePackage01
+testSerialize :: Either String PackageStream.Message
+testSerialize = DS.decode $ DS.encode $ ClientGreeting $ BSC.pack "matah"
