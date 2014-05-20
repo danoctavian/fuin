@@ -71,7 +71,7 @@ type OutgoingPipe = (TChan Packet, TChan ByteString)
 type IncomingPipe = TChan ByteString
 type TorrentFile = String
 
-data Message = Data ByteString | SwitchChannel TorrentFile | ClientGreeting ByteString
+data Message = Data ByteString | SwitchChannel TorrentFile | ClientGreeting ByteString | AckGreeting
   deriving (Eq, Show)
 
 
@@ -82,12 +82,13 @@ instance Serialize PackageStream.Message where
   put (Data bs) = p8 0 *> putByteString bs
   put (SwitchChannel torrentFile) = p8 1  *> putByteString (BSC.pack torrentFile)
   put (ClientGreeting bs) = p8 2 *> putByteString bs
-  get =  getData <|> getSwitch <|> getGreeting
+  put (AckGreeting) = p8 3
+  get =  getData <|> getSwitch <|> getGreeting <|> getAckGreeting
 
 getData = byte 0 *> (Data <$> (remaining >>= getByteString))
 getSwitch = byte 1 *> (SwitchChannel . BSC.unpack  <$> (remaining >>= getByteString))
 getGreeting = byte 2 *> (ClientGreeting <$> (remaining >>= getByteString))
-
+getAckGreeting = byte 3 *> (pure AckGreeting)
 
 -- collect the packet in the given chan
 collectPacket chan bs = do 
@@ -167,13 +168,9 @@ streamFormat bs = BS.concat [messageHeader, DS.encode $ BS.length bs,
 noDataMessage = streamFormat $ (BSC.pack "")
 
 
--- padding value
+-- padding value - a magical value used for padding the package
 pad :: Word8
 pad = 69
--- TODO: fix this flaw:
--- padding will have a minimum size of length noDataMessage 
--- How to: push back into the channel the unconsumed bytes of the padding they will be picked up
--- padding contains bytes of data that are meant to fail when attempted to be deserialized -hence the 69
 padding size = BS.replicate size pad
 {-
 data Message = Message ByteString
@@ -237,9 +234,11 @@ pieceHandler trans bs = do
         ("proxied package is not bittorrent. length: " ++ (show $ BS.length bs))
       return bs -- continue running
     Right packet -> if' (isPiece packet)
-                ((\(Piece num size payload) -> trans payload
+                ((\(Piece num size payload) ->
+                  liftIO $ debugM PackageStream.logger "getting a piece" >>
+                   trans payload
                     >>= (return . DS.encode . (Piece num size))) packet)
-                (return bs) -- do nothing if it isn't a piece
+                (liftIO $ debugM PackageStream.logger "getting a non-piece"  >> return bs) -- do nothing if it isn't a piece
 
 -- to turn them into bytes just run CL.map serialize on the stream; preserving the maybe stuff
 
@@ -324,12 +323,16 @@ parseSink = do
   liftIO $ P.putStrLn $ show msg
   msg <- await
   liftIO $ P.putStrLn $ show msg
+  msg <- await
+  liftIO $ P.putStrLn $ show msg
   return ""
   
 --runStream :: IO ()
 runStream = do
   liftIO $ P.putStrLn "running stream"
-  res <- parseByteSource $= (CL.map id) $= (conduitParser parseMessage) $$ parseSink
+  res <- buggyByteSource
+    $= CL.mapM (\m -> (liftIO $ P.putStrLn $ "message incoming " ++ show m) >> return m)
+    $= (conduitParser (DA.skipWhile (pad == ) >> parseMessage)) $$ parseSink
   return ()
 
 runMaybeStreamTest = do
@@ -340,6 +343,15 @@ runMaybeStreamTest = do
 
 samplePackage01 = "\69\69MSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL!DATA\STX\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOHMSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL%DATA\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH"
 
-testParseMsg = parse (DA.skipWhile (pad == ) >> parseMessage) samplePackage01
+buggyByteSource :: Source IO ByteString
+buggyByteSource =  DC.yield $ BSC.pack $ sampleStartingPack P.++ samplePackage02 P.++ samplePackage03
+
+sampleStartingPack = "MSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL!DATA\STX\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH"
+samplePackage02 :: String
+samplePackage02 = "MSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL\50DATA\NUL1234567891011121314151617181920"
+samplePackage03 :: String
+samplePackage03 = "21222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676"
+
+testParseMsg = parse ( (DA.skipWhile (pad == )) >> parseMessage) sampleStartingPack
 testSerialize :: Either String PackageStream.Message
 testSerialize = DS.decode $ DS.encode $ ClientGreeting $ BSC.pack "matah"

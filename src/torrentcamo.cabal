@@ -15,4 +15,4 @@ Executable torrentcamo
                                             , conduit-extra , vector , text , unordered-containers , aeson , tagsoup , url , http-conduit
                                             , http-server >= 1.0.4 , hslogger , resourcet , attoparsec-binary , split , lifted-base
                                             , monad-control , transformers-base , containers , primitive , mwc-random , byteable , cipher-aes
-                                            , exceptions , socks
+                                            , exceptions , socks , random

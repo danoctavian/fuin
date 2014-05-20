@@ -114,7 +114,10 @@ makeConnection torrentClient addressDict serverInfo = do
   liftIO $ forkIO $ streamOutgoing send (inOutgoing, outOutgoing) $ clientEncrypt encryption
 
   sendMessage send $ ClientGreeting $ bootstrapData encryption
+  --liftIO $ threadDelay (3 * 10 ^ 6)
 
+  -- TODO: handle the case in which it's not the greeting coming back
+  AckGreeting <- receiveMessage receive
   return (sendMessage send,  receiveMessage receive)
 
 

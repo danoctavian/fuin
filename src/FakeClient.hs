@@ -22,6 +22,7 @@ import System.Log.Logger
 import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
 import System.IO
+import System.Random
 import Network.Socket
 import Control.Monad.Error
 import Control.Monad.Trans.Control
@@ -78,7 +79,7 @@ runFakeBTClientInitiator pingChan = do
   socksConnectAddr sock (SockAddrInet (PortNum $ toggleEndianW16 socks5ProxyPort) $ localhostW32)
                         (SockAddrInet (PortNum $ receiverPublicPort) $ localhostW32)
   liftIO $ debugM FakeClient.logger "connected to socks5 proxy"
-  foreverSendReceive sock
+  foreverSendReceive sock 1 
   {-
     handle <- socksConnectTo localhost (PortNumber 1080) localhost (PortNumber 6669)
     IOH.hPutStr handle "wtfmom"
@@ -89,15 +90,19 @@ runFakeBTClientReceiver = do
   serverSock <- listenOn (PortNumber receiverPrivatePort)
   (sock, sockAddr) <- NS.accept serverSock
   liftIO $ debugM FakeClient.logger "connection received!"
-  foreverSendReceive sock
+  foreverSendReceive sock 2
   return ()
  -- foreverSendReceive sock
 
 packPayload = DBS.replicate packetSize (fromIntegral 2)
 
-foreverSendReceive sock = do
+foreverSendReceive sock seed = do
+  let gen = mkStdGen seed
+  let packs = [Piece 69 0 (packPayload), Have 911, Interested, Request 123 (Block 99 99)]
   liftIO $ forkIO $ forever $ NS.recv sock (2 * packetSize) >> threadDelay (1 * milli) 
-  forever $ (NBS.send sock $ DS.encode (Piece 69 0 (packPayload))) >> threadDelay (1 * milli) 
+  iterateForever (\gen -> let (r, gen') = randomR (0, P.length packs - 1) gen in
+                  (NBS.send sock $ DS.encode (packs !! r)) >> threadDelay (1 * milli) >> return gen')
+                  gen
 
 --runFakeBTClientReceiver = d
 
@@ -161,7 +166,7 @@ testCommunicationClient ch@(send, recv) = do
 communicationScript ch@(send, recv) = do
   liftIO $ debugM FakeClient.logger "writing message to server "
   let shortMsg = "this is the client motherfucker"
-  let bigMessage = P.take (round $ (fromIntegral packetSize) * 1.5) $ P.concat $ P.map show [1..]
+  let bigMessage = P.take (round $ (fromIntegral packetSize) * 2.5) $ P.concat $ P.map show [1..]
   send $ Data $ DBC.pack bigMessage
   send $ Data $ DBC.pack shortMsg
   serverMsg <- recv

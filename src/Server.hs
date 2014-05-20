@@ -103,6 +103,7 @@ makeClientConn incomingPipe outgoingPipe handleConnection encryption
     liftIO $ forkIO $ streamOutgoing sendChan outgoingPipe (serverEncrypt encryption)
     liftIO $ forkIO $ streamIncoming receiveChan incomingPipe (serverDecrypt encryption)
 
+    sendMessage sendChan AckGreeting
     -- call the custom connection handler
     handleConnection ((sendMessage sendChan), (receiveMessage receiveChan))
     return ()
