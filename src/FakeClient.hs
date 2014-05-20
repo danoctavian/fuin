@@ -126,7 +126,7 @@ runFuinClient = do
     Client.makeConn transporter info
   case connResult of
     Right (send, recv) -> do
-      testCommunicationClient (send, recv)
+      communicationScript (send, recv)
       return ()
     Left errMsg ->
       liftIO $ errorM FakeClient.logger $ "connection failed with " P.++ (show errMsg)
@@ -148,11 +148,26 @@ setupLoggers
 
 testCommunicationClient ch@(send, recv) = do
   liftIO $ debugM FakeClient.logger "writing message to server "
-  send $ Data $ DBC.pack "this is the client motherfucker"
+  let shortMsg = "this is the client motherfucker"
+  let bigMessage = P.take (round $ (fromIntegral packetSize) * 1.5) $ P.concat $ P.map show [1..]
+  send $ Data $ DBC.pack shortMsg
+  send $ Data $ DBC.pack shortMsg
   serverMsg <- recv
   liftIO $ debugM FakeClient.logger $ "received message from server  " P.++ (show serverMsg)
-  liftIO $ threadDelay $ 10 ^ 6
+  liftIO $ threadDelay $ 10 ^ 5
   testCommunicationClient ch
+
+
+communicationScript ch@(send, recv) = do
+  liftIO $ debugM FakeClient.logger "writing message to server "
+  let shortMsg = "this is the client motherfucker"
+  let bigMessage = P.take (round $ (fromIntegral packetSize) * 1.5) $ P.concat $ P.map show [1..]
+  send $ Data $ DBC.pack bigMessage
+  send $ Data $ DBC.pack shortMsg
+  serverMsg <- recv
+  liftIO $ debugM FakeClient.logger $ "received message from server  " P.++ (show serverMsg)
+  liftIO $ threadDelay $ 10 ^ 5
+  send $ Data $ DBC.pack bigMessage
 
 echoHandleConn :: HandleConnection
 echoHandleConn chans@(send, receive)

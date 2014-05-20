@@ -30,7 +30,7 @@ import Control.Exception (assert, finally)
 import Control.Concurrent.STM.TChan
 import Control.Concurrent.STM
 import Control.Monad.Catch
-import Data.Attoparsec 
+import Data.Attoparsec as DA
 import Data.Attoparsec.Char8 as DAC
 import Data.Binary
 import System.Timeout 
@@ -103,7 +103,7 @@ transformPacket (inChan, outChan) bs = do
 streamOutgoing :: (MonadIO m) =>
     TChan PackageStream.Message -> OutgoingPipe -> Encryption -> m ()
 streamOutgoing appMessages pipe encryption = do
-  tryChanSource appMessages =$ CL.map (fmap (streamFormat . DS.encode))  $$ (outgoingSink pipe encryption)
+  tryChanSource appMessages =$ CL.map (fmap (streamFormat . DS.encode)) $$ (outgoingSink pipe encryption)
   return ()
 
 
@@ -113,7 +113,7 @@ outgoingSink (input, output) encryption = do
   case chanPacket of
     (Packet packet) -> do
       bytes <- fmap BS.concat $ isolateWhileSmth (BS.length packet - (overhead encryption)) =$ CL.consume
-      let (encryptedPayload, newEncryption) = (applyEncryption encryption) $ insertPayload packet bytes
+      let (encryptedPayload, newEncryption) = (applyEncryption encryption) $ insertPayload packet bytes (overhead encryption)
       liftIO $ atomically $ writeTChan output $ encryptedPayload
       outgoingSink (input, output) newEncryption
     Kill -> return 0
@@ -130,7 +130,7 @@ streamIncoming appMessages pipe decryption = do
 incomingPackageSource pipe decryption
   = (chanSource pipe) $= (CL.map (decrypt decryption)) $= CL.filter (/= Nothing) $= CL.map fromJust
         $= CL.mapM (\m -> (liftIO $ debugM PackageStream.logger $ "message incoming " ++ show m) >> return m)
-        $= (conduitParser parseMessage) $= (CL.map snd) $=
+        $= (conduitParser (DA.skipWhile (pad == ) >> parseMessage)) $= (CL.map snd) $=
         (CL.filter isRight) $= (CL.map fromRight)
 
 
@@ -151,11 +151,11 @@ applyEncryption e (Right payload) = encrypt e payload
 
 
 -- return Left s with the package unchanged if no payload exists1
-insertPayload :: ByteString -> ByteString -> Either ByteString ByteString
-insertPayload oldPacket payload
+insertPayload :: ByteString -> ByteString -> Int -> Either ByteString ByteString
+insertPayload oldPacket payload encrOverhead
   | lenPayload == 0 = Left oldPacket
-  | lenPayload == lenOldPacket = Right payload
-  | lenPayload < lenOldPacket = Right $ BS.concat [payload, padding (lenOldPacket - lenPayload)]
+  | lenPayload +encrOverhead == lenOldPacket = Right payload
+  | lenPayload + encrOverhead < lenOldPacket = Right $ BS.concat [payload, padding (lenOldPacket - lenPayload)]
   | otherwise = error "len payload < len oldpacket"
     where
       lenPayload = BS.length payload
@@ -166,11 +166,15 @@ streamFormat bs = BS.concat [messageHeader, DS.encode $ BS.length bs,
 
 noDataMessage = streamFormat $ (BSC.pack "")
 
+
+-- padding value
+pad :: Word8
+pad = 69
 -- TODO: fix this flaw:
 -- padding will have a minimum size of length noDataMessage 
 -- How to: push back into the channel the unconsumed bytes of the padding they will be picked up
 -- padding contains bytes of data that are meant to fail when attempted to be deserialized -hence the 69
-padding size = streamFormat $ BS.replicate (size - (BS.length noDataMessage)) (69 :: Word8)
+padding size = BS.replicate size pad
 {-
 data Message = Message ByteString
   deriving Show
@@ -334,8 +338,8 @@ runMaybeStreamTest = do
   return ()
 
 
-samplePackage01 = "MSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL!DATA\STX\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOHMSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL%DATA\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH"
+samplePackage01 = "\69\69MSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL!DATA\STX\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOHMSG\NUL\NUL\NUL\NUL\NUL\NUL\NUL%DATA\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH\SOH"
 
-testParseMsg = parse parseMessage samplePackage01
+testParseMsg = parse (DA.skipWhile (pad == ) >> parseMessage) samplePackage01
 testSerialize :: Either String PackageStream.Message
 testSerialize = DS.decode $ DS.encode $ ClientGreeting $ BSC.pack "matah"
