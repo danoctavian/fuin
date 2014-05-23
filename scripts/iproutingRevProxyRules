@@ -1,0 +1,1 @@
+iptables -t nat -A PREROUTING -p tcp  --destination-port 6881 -j REDIRECT --to-port 8888

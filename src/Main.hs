@@ -5,10 +5,19 @@ import Prelude as P
 import Socks5Proxy
 import PackageStream
 import Client
-import ChanExample
 import Server
 import FakeClient
-import FakeServer
+import System.Environment
+import BittorrentParser
+
+main = do
+  P.putStrLn "main program running"
+  args <- getArgs 
+  case (read (args !! 0) :: Int) of
+    0 -> runFuinServer
+    1 -> runFuinClient
+    2 -> runRevProxyTest
+    3 -> runRevTamperingProxy
 {-
 
 ISSUES 
@@ -168,7 +177,6 @@ makeTorren1
 
 -}
 
-main = do
-  P.putStrLn "main running"
+
   
 

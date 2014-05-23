@@ -47,7 +47,7 @@ hashParam = "hash"
 
 logger = "fuin.utorrentapi"
 
-archMagnet = "magnet:?xt=urn:btih:67f4bcecdca3e046c4dc759c9e5bfb2c48d277b0&dn=archlinux-2014.03.01-dual.iso&tr=udp://tracker.archlinux.org:6969&tr=http://tracker.archlinux.org:6969/announce"
+
 
 data UTorrentConn = UTorrentConn { baseURL :: URL, user :: String, pass :: String, cookies :: CookieJar}
   deriving Show
@@ -108,9 +108,13 @@ getToken :: String -> String
 getToken = (\(TagText t) -> t) . (!! 2) . parseTags 
 
 
--- toy main function just for testing;
--- TODO; throw away
-runTorrentClient = do
+{-
+
+DEBUGGING code used for manual testing
+TODO: remove when done
+
+-}
+runTorrentClientScript = do
   conn <- uTorentConn "http://localhost:8080" "admin" ""
   liftIO $ debugM logger "made first connection"
   r2 <- addUrl conn archMagnet
@@ -121,20 +125,16 @@ runTorrentClient = do
   --liftIO $ debugM logger $ show $  r3
   return ()
 
-run = do
+archMagnet = "magnet:?xt=urn:btih:67f4bcecdca3e046c4dc759c9e5bfb2c48d277b0&dn=archlinux-2014.03.01-dual.iso&tr=udp://tracker.archlinux.org:6969&tr=http://tracker.archlinux.org:6969/announce"
+
+runWithErrorHandling = do
   liftIO $ updateGlobalLogger logger (setLevel DEBUG)
-  results <- runErrorT runTorrentClient
+  results <- runErrorT runTorrentClientScript
   P.putStrLn $ show results
   return ()
 
-
 {-
-instance TorrentClientConn UTorrentConn where
-  addMagnetLink = addUrl
-  listTorrents = list
-  pauseTorrent = pause
--}
-{-
+  HTTP calls notes:
 
 set settings calls
 

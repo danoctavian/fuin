@@ -58,6 +58,9 @@ packetSize = 100
 milli = 10 ^ 6
 {-
 
+This module just runs a specific scenario of data transfer using
+fake bittorrent clients. It's a debugging module
+
 FAKES
 initiator connects on port 6881
 

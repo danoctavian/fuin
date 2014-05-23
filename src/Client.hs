@@ -36,13 +36,6 @@ import Encryption
 data Transporter = Transporter {
                   makeConn :: (MonadFuinClient m, MonadError String m) => ServerInfo -> m ((Send, Receive))
                 }
-
-
-type EncryptF = ByteString -> ByteString
-
--- encrpytion - encrypt first hand; encrypt/decrypt afterwards
-
-
 -- pipes for sending message to the server
 -- and receiving
 
@@ -139,12 +132,3 @@ clientSocks5Init addresses clientSock serverSock = do
           (pieceHandler $ collectPacket inChan)
           (pieceHandler $ transformPacket outgoingPipe)
 
-
-
-
-runClient :: (MonadIO io) => io ()
-runClient = do
-    liftIO $ updateGlobalLogger Client.logger (setLevel DEBUG)
-
-   -- makeConnection transporter $ ServerAddress (1 :: Word32) "muelagabori" $ SockAddrInet (portNumberle 6000) (1 :: Word32)
-    return ()

@@ -14,14 +14,6 @@ import Data.List.Split as DLS
 
 localhost = "localhost"
 
-
-{-}
-
-instance Functor (Either a) where
-  --fmap :: (b -> c) -> Either a b -> Either a c
-  fmap _ (Left x) = Left x
-  fmap f (Right y) = Right $ f y
--}
 strToWord8s :: String -> [Word8]
 strToWord8s = P.map c2w
 

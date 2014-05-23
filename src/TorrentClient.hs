@@ -11,6 +11,10 @@ import Control.Monad.Trans.Control
 import Control.Monad.Error.Class
 import Network
 
+{-
+Defines the interface for interacting with a bittorrent client
+-}
+
 
 data ProxyType = None | Socks4 | Socks5 | HTTPS | HTTP deriving (Enum, Show, Eq)
 

@@ -243,14 +243,6 @@ pieceHandler trans bs = do
 -- to turn them into bytes just run CL.map serialize on the stream; preserving the maybe stuff
 
 
--- TODO: write message reading 
-{-
-  RECEIVE PIPE
-  conn socket makes packages => turn into stream of bytes => parse packets as you get enough bytes => message chan
-
-  SOURCE: read message from socket; push the bytes; parse stream of messages; SINK - Tchan for messages
-  -}
-
 -- message between server and client
 parseMessage :: Parser (Either String PackageStream.Message)
 parseMessage = do
@@ -264,7 +256,13 @@ parseMessage = do
 dataFromPacket :: Packet -> ByteString
 dataFromPacket (Packet bs) = bs
 
--- toy crap from here onwards 
+
+
+
+
+{- Manual DEBUGGING CODE:
+  TODO: remove once no longer needed
+-}
 
 byteSource :: Source IO ByteString
 byteSource = do

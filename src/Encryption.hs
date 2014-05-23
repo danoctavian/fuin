@@ -20,7 +20,18 @@ import Utils
 TODO verify if using AES directly is the way to go.
 i need methods for veryfying something is decryptable
 i need to check for tampering (similar to above i guess)
-need 
+-}
+
+{-
+WARNING:
+  at this point this module does not perform encryption 
+
+  HOWEVER has the interface functions and datatypes that the rest of the code
+  will use. It is flexible enough to accomodate AES and other types of encryption
+
+  At the momoent it simulates encryption by appending a magic header
+  at the beginning of the "encrypted" message so as to allow 
+  for the check of succesful "decryption"
 -}
 
 magicalHeader :: ByteString
@@ -93,6 +104,7 @@ makeServerEncryption serverEnc clientKey
 -- fake keys
 
 fakeKey = DB.replicate 32 (fromIntegral 1)
+
 
 -- measure entropy of video file vs random file
 c2w8 :: Char -> Word8

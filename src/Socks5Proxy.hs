@@ -3,6 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 module Socks5Proxy where
   
@@ -43,6 +44,9 @@ import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
 import Data.List.Split as DLS
 
+import Data.Serialize as DS
+import BittorrentParser as BP
+
 --import WireProtocol
 
 import Utils
@@ -70,8 +74,7 @@ data Connection = Connection CMD ATYP SockAddr -- cmd, atyp, address, port
   deriving Show
 
 msgSize = 1024 -- magical? may need more
--- for bittorrent 20 + 1024 * 1024
-packSize = 20 + 1024 * 1024
+
 
 cmdCodes = ['\1', '\2', '\3']
 atypCodes = ['\1', '\3', '\4']
@@ -87,14 +90,8 @@ runServer config = liftIO $ withSocketsDo $  do
   loop config sock
 
 
-justPrint :: (Show s, MonadIO m) => String -> s -> m s 
-justPrint  flag bs = do
-  liftIO $ debugM Socks5Proxy.logger flag
-  liftIO $ debugM Socks5Proxy.logger $ show bs
-  return bs
 
-printerInit _ _ = return $ PacketHandlers (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!") 
-noOpInit _ _ = return $ PacketHandlers return return
+
 
 loop config serverSock = do
   (clientSock, addr) <- accept serverSock
@@ -121,15 +118,15 @@ handleReq config (sock, addr) = do
 
 handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) config = do
   debugM Socks5Proxy.logger "handling connection"
-  {-}
+  {- getting the address can also be done as such:
   let addr = getStrAddress atyp bsAddr
   addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show $ sockAddrPort ) 
   let serverAddr = L.head addrInfos -- TODO: issue here might be no head
   -}
   serverSock <- socket (toAddressFamily atyp) Stream defaultProtocol --
-  {- fuck me if i understand why they did this faggotry with reversing the endianness 
-    of whatever i write in port number; but here it goes but whatever gets here is endianness adjusted
-    essentially the PortNumber thing assumes what is given to it is big endian (network byte order)
+  {- reverses endianness of whatever i provide as portNumber
+    ; the PortNumber thing assumes what
+    is given to it is big endian (network byte order)
     and turns it into little endian (host byte order) -}
   debugM Socks5Proxy.logger $ "address is " ++ (show serverSockAddr)
   connect serverSock serverSockAddr
@@ -137,7 +134,7 @@ handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) c
 {-
   -- fast proxying solution. problem is it does not allow place a hook
   -- and tamper with the packets
-  -- using conduit atm -it's prolly good nough
+  -- using conduit atm -it's prolly efficient nough
   clientH <- socketToHandle clientSock ReadWriteMode
   serverH <- socketToHandle serverSock ReadWriteMode
   let serverSide = (serverSock, Just serverH)
@@ -249,15 +246,30 @@ toAddressFamily IPV4 = AF_INET
 toAddressFamily IPV6 = AF_INET6
 toAddressFamily DOMAINNAME = undefined -- TODO: wut is this
 
--- fuckaround runners
 
-runForShow = withSocketsDo $ do -- for sho
-  runServer (Config  (PortNumber 1080)
-            printerInit
-            doSocksHandshake)
-
+-- socks5 proxy which doesn't tamper with the packets
 runNoOpSocks = withSocketsDo $ do
   runServer (Config  (PortNumber 1080) noOpInit doSocksHandshake)
+noOpInit _ _ = return $ PacketHandlers return return
+
+
+
+
+
+{-
+MANUAL Debugging code
+TODO; remove once done
+-}
+justPrint :: (Show s, MonadIO m) => String -> s -> m s 
+justPrint  flag bs = do
+  liftIO $ debugM Socks5Proxy.logger flag
+  liftIO $ debugM Socks5Proxy.logger $ show bs
+  return bs
+
+printerInit _ _ = return $ PacketHandlers (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!")
+
+
+
 
 -- used as a reverse proxy...
 runNoProtoProxy = withSocketsDo $ do
@@ -265,3 +277,34 @@ runNoProtoProxy = withSocketsDo $ do
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
                   (PortNum $ toggleEndianW16 3000) $ readIPv4 "127.0.0.1"))
 
+
+runRevProxyTest = withSocketsDo $ do
+  liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
+  let inputPort = PortNumber 8888
+      outputPort = PortNum $ toggleEndianW16 6881 
+  liftIO $ debugM Socks5Proxy.logger
+    $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
+  runServer (Config inputPort printerInit
+            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
+                  outputPort $ readIPv4 "127.0.0.1"))
+
+
+tamperOut bs = do 
+  let btPacket = (DS.decode bs :: Either String BP.Message)
+  liftIO $ debugM Socks5Proxy.logger $ show (DatB.length bs, show btPacket)
+  return bs
+
+tamperInc = tamperOut
+
+tamperingInit :: InitHook
+tamperingInit s1 s2 = return $ PacketHandlers tamperOut tamperOut
+
+runRevTamperingProxy = withSocketsDo $ do
+liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
+let inputPort = PortNumber 8888
+    outputPort = PortNum $ toggleEndianW16 6881 
+liftIO $ debugM Socks5Proxy.logger
+  $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
+runServer (Config inputPort tamperingInit
+          (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
+                outputPort $ readIPv4 "127.0.0.1"))
