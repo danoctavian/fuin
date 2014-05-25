@@ -71,3 +71,4 @@ word8sToWord32 bytes =  sum $ P.zipWith (*)
 
 iterateForever :: (Monad m) => (a -> m a) -> a -> m b
 iterateForever f v = f v >>= iterateForever f
+

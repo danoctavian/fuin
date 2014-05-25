@@ -8,7 +8,7 @@
 module Socks5Proxy where
   
 import Control.Monad.IO.Class
-import Data.ByteString.Char8 as Ch8
+import Data.ByteString.Char8 as DBC
 import Data.ByteString as DatB
 import System.FilePath.Posix
 import System.Environment
@@ -199,7 +199,7 @@ isValidHandshake (CH ver methods) = ver == (chr 5) && L.elem '\0' methods
 -- data type convertors
 
 toStrAddress :: ATYP -> ByteString -> String
-toStrAddress DOMAINNAME = Ch8.unpack
+toStrAddress DOMAINNAME = DBC.unpack
 toStrAddress IPV4 = toIPAdress
 toStrAddress IPV6 = toIPAdress
 
@@ -208,7 +208,7 @@ getStrAddress atyp (Left bs) = toStrAddress atyp bs
 getStrAddress _ (Right s) = s
 
 toIPAdress :: ByteString -> String
-toIPAdress bs = (L.foldl (++) "") . (inbetween ".")  . (L.map $ show . ord) . Ch8.unpack $ bs
+toIPAdress bs = (L.foldl (++) "") . (inbetween ".")  . (L.map $ show . ord) . DBC.unpack $ bs
 
 
 -- TODO: fields for IPV6 namely flow and ScopeID are from my ass; need to figure out wtf
@@ -296,15 +296,37 @@ tamperOut bs = do
 
 tamperInc = tamperOut
 
+
 tamperingInit :: InitHook
 tamperingInit s1 s2 = return $ PacketHandlers tamperOut tamperOut
 
+
+saveToHandle handle bs = do
+  liftIO $ P.putStrLn $ show bs
+  
+  liftIO $ DatB.hPutStr handle bs
+  liftIO $ hFlush handle
+  
+  return bs
+
+testWriteToFile = do
+  fh <- openFile "test" WriteMode
+  DatB.hPutStr fh (DBC.pack "this is me niggas")
+  hFlush fh
+  threadDelay (10^8)
+
 runRevTamperingProxy = withSocketsDo $ do
-liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
-let inputPort = PortNumber 8888
-    outputPort = PortNum $ toggleEndianW16 6881 
-liftIO $ debugM Socks5Proxy.logger
-  $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
-runServer (Config inputPort tamperingInit
-          (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
-                outputPort $ readIPv4 "127.0.0.1"))
+  liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
+
+  let inFile = "incomingTraffic"
+      outFile = "outgoingTraffic"
+  hIn <- liftIO $ openFile inFile WriteMode
+  hOut <- liftIO $ openFile outFile WriteMode
+
+  let inputPort = PortNumber 8888
+      outputPort = PortNum $ toggleEndianW16 6881 
+  liftIO $ debugM Socks5Proxy.logger
+    $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
+  runServer (Config inputPort (\ s1 s2 -> return $ PacketHandlers (saveToHandle hIn) (saveToHandle hOut))
+            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
+                  outputPort $ readIPv4 "127.0.0.1"))

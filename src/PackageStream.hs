@@ -221,7 +221,6 @@ chanSink chan = do
 getBTPacket :: BS.ByteString -> Either String BP.Message
 getBTPacket = DS.decode
 
-
 isPiece (Piece _ _ _) = True
 isPiece _ = False
 

@@ -1,9 +1,12 @@
 module BittorrentParser
 where
 
+import Prelude as P
 import Control.Applicative hiding (empty)
 import Control.Monad
 
+import Data.Bits
+import Data.Maybe
 import Data.Monoid
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -12,6 +15,10 @@ import Data.Serialize
 import Data.Serialize.Put
 import Data.Serialize.Get
 
+import Data.Attoparsec as DA
+import Data.Attoparsec.Combinator as DACo
+import Data.Attoparsec.Char8 as DAC
+import Data.Attoparsec.Binary
 -- REMOVE LATER
 -- import Data.ByteString.Builder
 -- import Data.ByteString.Parser
@@ -19,8 +26,12 @@ import Data.Serialize.Get
 import Data.Word
 import Data.Char
 import System.IO
+
+import Data.ByteString.Char8 as DBC
 --import ConsoleP
 --import Torrent
+
+import Utils
 
 ------------------------------------------------------------
 
@@ -132,18 +143,10 @@ byte w = do
 --   where caps = extensionBasis
 --         sz = length protocolHeader
 
-protocolHeaderSize = length protocolHeader
-
-
--- | Protocol handshake code. This encodes the protocol handshake part
-protocolHandshake :: L.ByteString
-protocolHandshake = L.fromChunks . map runPut $
-                    [putWord8 $ fromIntegral protocolHeaderSize,
-                     mapM_ (putWord8 . fromIntegral . ord) protocolHeader,
-                     putWord64be extensionBasis]
+protocolHeaderSize = P.length protocolHeader
 
 toBS :: String -> B.ByteString
-toBS = B.pack . map toW8
+toBS = B.pack . P.map toW8
 
 toW8 :: Char -> Word8
 toW8 = fromIntegral . ord
@@ -167,11 +170,44 @@ headerParser ih = do
     return (decodeCapabilities caps, pid)
 
 
-data Capabilities = Fast
+headerParse :: Parser([Capabilities], B.ByteString)
+headerParse = do
+    hdSz <- DA.anyWord8 
+    when (fromIntegral hdSz /= protocolHeaderSize) $ fail "Wrong header size"
+    string (DBC.pack protocolHeader)
+    caps <- anyWord64be
+    let magicLen = 20
+    ihR <- DA.take magicLen
+    pid <- DA.take magicLen
+    return (decodeCapabilities caps, pid)
+
+
+-- TODO: there's more
+data Capabilities = Fast | DHT | ExtensionProtocol | ExtensionNegotiationProtocol
+    deriving (Show, Eq)
+
+extensionBits = [(Fast, 62), (ExtensionProtocol, 44), (DHT, 64)]    
 -- 
 decodeCapabilities :: Word64 -> [Capabilities]
-decodeCapabilities _ = []
+decodeCapabilities w64
+    = catMaybes $ P.map (\(ext, bit) -> if' (testBit w64 (64 - bit)) (Just ext) Nothing) extensionBits
 
+findCapabilities :: Word64 -> [Int]
+findCapabilities w64 =
+  catMaybes $ P.map (\bit -> if' (testBit w64 (64 - bit)) (Just bit) Nothing) [0..63]
+
+parsePackage :: Parser (Either String Message)
+parsePackage = do
+  packLen <- fmap (\w -> fromIntegral w :: Int) anyWord32be
+  fmap decode $ DA.take packLen
+
+runTestParse = do
+    bs <- B.readFile "delugeToUTorrentSample/incomingTraffic"
+    P.putStrLn $ show $ (\(DAC.Done _ r) -> (P.length $ P.filter isP r,  P.length r) ) $  DA.parse (headerParse >> (DACo.count 102 parsePackage)) bs
+
+
+isP (Right (Piece _ _ _)) = True
+isP _ = False
 -- | Initiate a handshake on a socket
 
 {-
@@ -210,7 +246,7 @@ testData = [KeepAlive,
             BitField (L.pack [1,2,3]),
             Request 123 (Block 4 7),
             Piece 5 7 (B.pack [1,2,3,4,5,6,7,8,9,0]),
-            Piece 5 7 (B.pack (concat . replicate 30 $ [minBound..maxBound])),
+            Piece 5 7 (B.pack (P.concat . P.replicate 30 $ [minBound..maxBound])),
             Cancel 5 (Block 6 7),
             Port 123
            ]
