@@ -62,6 +62,7 @@ data Message = KeepAlive
              | Piece PieceNum Int B.ByteString
              | Cancel PieceNum Block
              | Port Integer
+             | Handshake ([Capabilities], ByteString)
   deriving (Eq, Show)
 
 
@@ -170,16 +171,15 @@ headerParser ih = do
     return (decodeCapabilities caps, pid)
 
 
-headerParse :: Parser([Capabilities], B.ByteString)
+headerParse :: Parser(Either String Message)
 headerParse = do
-    hdSz <- DA.anyWord8 
-    when (fromIntegral hdSz /= protocolHeaderSize) $ fail "Wrong header size"
+    DA.word8 19
     string (DBC.pack protocolHeader)
     caps <- anyWord64be
     let magicLen = 20
     ihR <- DA.take magicLen
     pid <- DA.take magicLen
-    return (decodeCapabilities caps, pid)
+    return $ Right $ Handshake (decodeCapabilities caps, pid)
 
 
 -- TODO: there's more
@@ -203,8 +203,13 @@ parsePackage = do
 
 runTestParse = do
     bs <- B.readFile "delugeToUTorrentSample/incomingTraffic"
-    P.putStrLn $ show $ (\(DAC.Done _ r) -> (P.length $ P.filter isP r,  P.length r) ) $  DA.parse (headerParse >> (DACo.count 102 parsePackage)) bs
+    P.putStrLn $ show $ (\(DAC.Done _ r) -> r) $
+                        -- (P.length $ P.filter isP r,  P.length r) ) $ 
+                        DA.parse parseWith2 bs
 
+
+parseInOrder = headerParse >> (DACo.count 102 parsePackage)
+parseWith2 = DACo.count 2 (headerParse <|> parsePackage)
 
 isP (Right (Piece _ _ _)) = True
 isP _ = False
