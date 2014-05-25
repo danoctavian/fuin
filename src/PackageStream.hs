@@ -20,6 +20,7 @@ import Data.ByteString as BS
 import Data.ByteString.Char8 as BSC
 --import Data.ByteString.Lazy as BSL
 import Data.Conduit as DC
+import Data.Conduit as DCL
 import "conduit-extra" Data.Conduit.Binary as DCB
 import Data.Conduit.Attoparsec
 import qualified Data.Conduit.List as CL
@@ -59,6 +60,8 @@ messageHeader :: ByteString
 messageHeader = "MSG"
 dataHeader :: ByteString
 dataHeader = "DATA"
+
+type PayloadTransformer = (MonadIO m) => ByteString -> m ByteString
 
 
 type Send = (MonadIO m) => PackageStream.Message -> m ()
@@ -225,7 +228,19 @@ isPiece (Piece _ _ _) = True
 isPiece _ = False
 
 -- unwrap and wrap back a bittorrent piece after applying a transform
-pieceHandler :: PacketHandler -> PacketHandler
+
+pieceHandler :: PayloadTransformer -> PacketHandler
+pieceHandler trans
+  = conduitParser (headerParser <|> packageParser)
+    =$= CL.mapM (\(_, pack) -> do
+      liftIO $ debugM PackageStream.logger $ "received BT package " ++ (show pack)
+      case pack of 
+        Right (Piece num sz payload) ->
+          (trans payload) >>= (return . serializePackage . (Piece num sz))
+        Right other -> return $ serializePackage other
+        Left bs -> return bs 
+        )
+{-
 pieceHandler trans bs = do
   case (getBTPacket bs) of
     Left err -> do
@@ -237,7 +252,9 @@ pieceHandler trans bs = do
                   liftIO $ debugM PackageStream.logger "getting a piece" >>
                    trans payload
                     >>= (return . DS.encode . (Piece num size))) packet)
-                (liftIO $ debugM PackageStream.logger "getting a non-piece"  >> return bs) -- do nothing if it isn't a piece
+                (liftIO $ debugM PackageStream.logger "getting a non-piece"  >> return bs)
+
+-}
 
 -- to turn them into bytes just run CL.map serialize on the stream; preserving the maybe stuff
 

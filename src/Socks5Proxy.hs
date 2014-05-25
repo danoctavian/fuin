@@ -52,10 +52,10 @@ import BittorrentParser as BP
 import Utils
 
 data PacketHandlers = PacketHandlers {incoming :: PacketHandler, outgoing :: PacketHandler}
-type PacketHandler = (MonadIO m) => ByteString -> m (ByteString)
+type PacketHandler = (MonadIO m, MonadThrow m) => Conduit ByteString m ByteString
 
 
-idPacketHandlers = PacketHandlers return return
+idPacketHandlers = let idPacketHandler = DCL.map id in PacketHandlers idPacketHandler idPacketHandler
 
 -- client sock -> remote server sock -> handlers
 type InitHook = (MonadIO m) => SockAddr -> SockAddr -> m PacketHandlers
@@ -162,11 +162,11 @@ safeConduitSock :: (MonadResource m) => (Socket -> ConduitM i o m r) -> Socket -
 safeConduitSock conduit socket  = bracketP ((return socket) :: IO (Socket)) Network.Socket.sClose conduit
 
 -- TODO: implement below code using safe resource closing using above; now ihnfc what happens to the socket
-forwardPackets :: (MonadIO io) => Socket ->
-                  Socket -> (ByteString -> io ByteString)
+forwardPackets :: (MonadIO io, MonadThrow io) => Socket ->
+                  Socket -> PacketHandler
                   -> io ()
 forwardPackets src dst trans = do
-  r <- (sourceSocket src) =$ (DCL.mapM trans) $$ (sinkSocket dst)
+  r <- (sourceSocket src) =$ trans $$ (sinkSocket dst)
   return ()
 
 -- only support TCP connect. fail otherwise
@@ -250,7 +250,7 @@ toAddressFamily DOMAINNAME = undefined -- TODO: wut is this
 -- socks5 proxy which doesn't tamper with the packets
 runNoOpSocks = withSocketsDo $ do
   runServer (Config  (PortNumber 1080) noOpInit doSocksHandshake)
-noOpInit _ _ = return $ PacketHandlers return return
+noOpInit _ _ = return $ idPacketHandlers
 
 
 
@@ -260,11 +260,13 @@ noOpInit _ _ = return $ PacketHandlers return return
 MANUAL Debugging code
 TODO; remove once done
 -}
-justPrint :: (Show s, MonadIO m) => String -> s -> m s 
-justPrint  flag bs = do
+--justPrint :: (Show s, MonadIO m) => String -> s -> m s 
+justPrint  flag
+  = DCL.mapM $ \bs -> do
   liftIO $ debugM Socks5Proxy.logger flag
   liftIO $ debugM Socks5Proxy.logger $ show bs
   return bs
+
 
 printerInit _ _ = return $ PacketHandlers (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!")
 
@@ -289,6 +291,7 @@ runRevProxyTest = withSocketsDo $ do
                   outputPort $ readIPv4 "127.0.0.1"))
 
 
+{-
 tamperOut bs = do 
   let btPacket = (DS.decode bs :: Either String BP.Message)
   liftIO $ debugM Socks5Proxy.logger $ show (DatB.length bs, show btPacket)
@@ -330,3 +333,5 @@ runRevTamperingProxy = withSocketsDo $ do
   runServer (Config inputPort (\ s1 s2 -> return $ PacketHandlers (saveToHandle hIn) (saveToHandle hOut))
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
                   outputPort $ readIPv4 "127.0.0.1"))
+
+-}

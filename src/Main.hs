@@ -17,7 +17,7 @@ main = do
     0 -> runFuinServer
     1 -> runFuinClient
     2 -> runRevProxyTest
-    3 -> runRevTamperingProxy
+    --3 -> runRevTamperingProxy
 {-
 
 ISSUES 

@@ -8,8 +8,8 @@ import Control.Monad
 import Data.Bits
 import Data.Maybe
 import Data.Monoid
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString as DB
+import qualified Data.ByteString.Lazy as DBL
 
 import Data.Serialize
 import Data.Serialize.Put
@@ -35,12 +35,12 @@ import Utils
 
 ------------------------------------------------------------
 
-type BitField    = L.ByteString
+type BitField    = DBL.ByteString
 type PieceLength = Int
 
 -- copied types
 type PieceNum = Int
-type InfoHash = L.ByteString
+type InfoHash = DBL.ByteString
 
 type BlockSize = Int
  
@@ -59,10 +59,10 @@ data Message = KeepAlive
              | Have PieceNum -- Int
              | BitField BitField
              | Request PieceNum Block
-             | Piece PieceNum Int B.ByteString
+             | Piece PieceNum Int DB.ByteString
              | Cancel PieceNum Block
              | Port Integer
-             | Handshake ([Capabilities], ByteString)
+             | Handshake  ([Capabilities], ByteString) ByteString -- hacky; TODO: refactor later
   deriving (Eq, Show)
 
 
@@ -100,6 +100,7 @@ instance Serialize Message where
     put (Cancel pn (Block os sz))
                         = p8 8 *> mapM_ p32be [pn,os,sz]
     put (Port p)        = p8 9 *> (putWord16be . fromIntegral $ p)
+    put (Handshake _ raw) = putByteString raw
     
     get =  getKA      <|> getChoke
        <|> getUnchoke <|> getIntr
@@ -136,50 +137,26 @@ byte w = do
         else fail $ "Expected byte: '" ++ show w ++ "' got: '" ++ show x ++ "'"
 
 
--- | Protocol handshake code. This encodes the protocol handshake part
--- protocolHandshake :: L.ByteString
--- protocolHandshake = toLazyByteString $ mconcat [putWord8 $ fromIntegral sz,
---                                                 putString protocolHeader,
---                                                 putWord64be caps]
---   where caps = extensionBasis
---         sz = length protocolHeader
-
 protocolHeaderSize = P.length protocolHeader
 
-toBS :: String -> B.ByteString
-toBS = B.pack . P.map toW8
+toBS :: String -> DB.ByteString
+toBS = DB.pack . P.map toW8
 
 toW8 :: Char -> Word8
 toW8 = fromIntegral . ord
 
--- | Receive the header parts from the other end
-receiveHeader :: Handle -> Int -> InfoHash
-              -> IO (Either String ([Capabilities], L.ByteString))
-receiveHeader h sz ih = parseHeader `fmap` B.hGet h sz
-  where parseHeader = runGet (headerParser ih)
-
-headerParser :: InfoHash -> Get ([Capabilities], L.ByteString)
-headerParser ih = do
-    hdSz <- getWord8
-    when (fromIntegral hdSz /= protocolHeaderSize) $ fail "Wrong header size"
-    protoString <- getByteString protocolHeaderSize
-    when (protoString /= toBS protocolHeader) $ fail "Wrong protocol header"
-    caps <- getWord64be
-    ihR   <- getLazyByteString 20
-    when (ihR /= ih) $ fail "Wrong InfoHash"
-    pid <- getLazyByteString 20
-    return (decodeCapabilities caps, pid)
-
-
-headerParse :: Parser(Either String Message)
-headerParse = do
-    DA.word8 19
-    string (DBC.pack protocolHeader)
+headerParser :: Parser(Either ByteString Message)
+headerParser = do
+    let protoLen = fromIntegral $ P.length protocolHeader
+    let bsProtoHead = DBC.pack protocolHeader
+    DA.word8 protoLen
+    string bsProtoHead
     caps <- anyWord64be
     let magicLen = 20
     ihR <- DA.take magicLen
     pid <- DA.take magicLen
-    return $ Right $ Handshake (decodeCapabilities caps, pid)
+    return $ Right $ Handshake (decodeCapabilities caps, pid) $
+            DB.concat $ [DB.pack [protoLen], bsProtoHead, encode caps, ihR, pid]
 
 
 -- TODO: there's more
@@ -196,48 +173,32 @@ findCapabilities :: Word64 -> [Int]
 findCapabilities w64 =
   catMaybes $ P.map (\bit -> if' (testBit w64 (64 - bit)) (Just bit) Nothing) [0..63]
 
-parsePackage :: Parser (Either String Message)
-parsePackage = do
+packageParser :: Parser (Either ByteString Message)
+packageParser = do
   packLen <- fmap (\w -> fromIntegral w :: Int) anyWord32be
-  fmap decode $ DA.take packLen
+  fmap decodeOrLeave $ DA.take packLen
+  where
+    decodeOrLeave bs = case decode bs of
+                        (Left _) -> Left bs
+                        (Right m) -> Right m
 
 runTestParse = do
-    bs <- B.readFile "delugeToUTorrentSample/incomingTraffic"
-    P.putStrLn $ show $ (\(DAC.Done _ r) -> r) $
+    bs <- DB.readFile "delugeToUTorrentSample/incomingTraffic"
+    P.putStrLn $ show $ (\(DAC.Done _ [Right (Handshake _ bs)]) -> DA.parse headerParser bs) $
                         -- (P.length $ P.filter isP r,  P.length r) ) $ 
                         DA.parse parseWith2 bs
 
+serializePackage pack
+  = prefixLen $ encode pack 
 
-parseInOrder = headerParse >> (DACo.count 102 parsePackage)
-parseWith2 = DACo.count 2 (headerParse <|> parsePackage)
+prefixLen bs =  DB.concat [encode $ (\l -> fromIntegral l :: Word32) $ DB.length bs, bs]
+
+parseInOrder = headerParser >> (DACo.count 102 packageParser)
+parseWith2 = DACo.count 1 (headerParser <|> packageParser)
 
 isP (Right (Piece _ _ _)) = True
 isP _ = False
--- | Initiate a handshake on a socket
 
-{-
-initiateHandshake :: LogChannel -> Handle -> PeerId -> InfoHash
-                  -> IO (Either String ([Capabilities], L.ByteString))
-initiateHandshake logC handle peerid infohash = do
-    logMsg logC "Sending off handshake message"
-    L.hPut handle msg
-    hFlush handle
-    logMsg logC "Receiving handshake from other end"
-    receiveHeader handle sz infohash -- TODO: Exceptions
-  where msg = L.fromChunks . map runPut $ [putLazyByteString protocolHandshake,
-                                          putLazyByteString infohash,
-                                          putByteString . toBS $ peerid]
-        sz = fromIntegral (L.length msg)
--}
--- 
--- -- TESTS
-testDecodeEncodeProp1 :: Message -> Bool
-testDecodeEncodeProp1 m =
-    let encoded = encode m
-        decoded = decode encoded
-    in case decoded of
-         Left _ -> False
-         Right m' -> m == m'
 
 -- Prelude.map testDecodeEncodeProp1 
 testData = [KeepAlive,
@@ -248,10 +209,10 @@ testData = [KeepAlive,
             Have 0,
             Have 1,
             Have 1934729,
-            BitField (L.pack [1,2,3]),
+            BitField (DBL.pack [1,2,3]),
             Request 123 (Block 4 7),
-            Piece 5 7 (B.pack [1,2,3,4,5,6,7,8,9,0]),
-            Piece 5 7 (B.pack (P.concat . P.replicate 30 $ [minBound..maxBound])),
+            Piece 5 7 (DB.pack [1,2,3,4,5,6,7,8,9,0]),
+            Piece 5 7 (DB.pack (P.concat . P.replicate 30 $ [minBound..maxBound])),
             Cancel 5 (Block 6 7),
             Port 123
            ]

@@ -104,7 +104,7 @@ foreverSendReceive sock seed = do
   let packs = [Piece 69 0 (packPayload), Have 911, Interested, Request 123 (Block 99 99)]
   liftIO $ forkIO $ forever $ NS.recv sock (2 * packetSize) >> threadDelay (1 * milli) 
   iterateForever (\gen -> let (r, gen') = randomR (0, P.length packs - 1) gen in
-                  (NBS.send sock $ DS.encode (packs !! r)) >> threadDelay (1 * milli) >> return gen')
+                  (NBS.send sock $ prefixLen $ DS.encode (packs !! r)) >> threadDelay (1 * milli) >> return gen')
                   gen
 
 --runFakeBTClientReceiver = d
