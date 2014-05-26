@@ -238,7 +238,7 @@ pieceHandler trans
         Right (Piece num sz payload) ->
           (trans payload) >>= (return . serializePackage . (Piece num sz))
         Right other -> return $ serializePackage other
-        Left bs -> return bs 
+        Left bs -> return $ prefixLen bs 
         )
 {-
 pieceHandler trans bs = do
@@ -369,3 +369,15 @@ samplePackage03 = "2122232425262728293031323334353637383940414243444546474849505
 testParseMsg = parse ( (DA.skipWhile (pad == )) >> parseMessage) sampleStartingPack
 testSerialize :: Either String PackageStream.Message
 testSerialize = DS.decode $ DS.encode $ ClientGreeting $ BSC.pack "matah"
+
+
+runAutoTestParse = do
+    bs <- BS.readFile "delugeToUTorrentSample/outgoingTraffic"
+    let testSample = BS.take 314 bs
+    processed <- ((CL.sourceList [testSample]) $=
+                  (pieceHandler return) $$
+                  --CL.map id $$
+                  (CL.fold (\b1 b2 -> BS.concat [b1, b2]) ("")))
+    P.putStrLn $ show $ BS.length processed
+    P.putStrLn $ show $ BS.length  testSample
+    P.putStrLn $ show (processed == testSample)

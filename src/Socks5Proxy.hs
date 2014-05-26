@@ -9,7 +9,7 @@ module Socks5Proxy where
   
 import Control.Monad.IO.Class
 import Data.ByteString.Char8 as DBC
-import Data.ByteString as DatB
+import Data.ByteString as DB
 import System.FilePath.Posix
 import System.Environment
 import System.Directory
@@ -25,6 +25,7 @@ import Control.Monad as CM
 import qualified Data.ByteString.Lazy as BSL
 import Data.Attoparsec 
 import Data.Attoparsec.Char8 as DAC
+import Data.Attoparsec.Combinator as DACo
 import Data.Attoparsec.Binary
 import Network.Socket.ByteString as NBS
 import Data.Char
@@ -38,7 +39,9 @@ import Prelude as P
 import Data.Conduit.Network
 import Data.Conduit
 import Data.Conduit.List as DCL
+import Data.Conduit.Attoparsec
 import Control.Monad.Trans.Resource
+import Control.Applicative
 import System.Log.Logger
 import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
@@ -224,15 +227,15 @@ toSockAddress atyp bs port
 word32Size = 4
 -- converts IPV4 address to word32; not needed currently
 toHostAddress :: ByteString -> Maybe HostAddress
-toHostAddress bs = if' (DatB.length bs == word32Size)
-                      (Just $ word8sToWord32 $ DatB.unpack bs)
+toHostAddress bs = if' (DB.length bs == word32Size)
+                      (Just $ word8sToWord32 $ DB.unpack bs)
                       Nothing
 
 -- NOT TESTED (not like anything in this packet is REALLY tested but hey)
 -- it's probably wrong!!
 toHostAddress6 :: ByteString -> Maybe HostAddress6
-toHostAddress6 bs =if' (DatB.length bs == 4 * word32Size)
-                   (let ws = L.map (fromJust . toHostAddress) $ L.unfoldr (Just . (DatB.splitAt 4)) bs
+toHostAddress6 bs =if' (DB.length bs == 4 * word32Size)
+                   (let ws = L.map (fromJust . toHostAddress) $ L.unfoldr (Just . (DB.splitAt 4)) bs
                     in Just (ws!!0, ws!!1, ws!!2, ws!!3))
                    Nothing
 
@@ -291,47 +294,62 @@ runRevProxyTest = withSocketsDo $ do
                   outputPort $ readIPv4 "127.0.0.1"))
 
 
-{-
+
 tamperOut bs = do 
   let btPacket = (DS.decode bs :: Either String BP.Message)
-  liftIO $ debugM Socks5Proxy.logger $ show (DatB.length bs, show btPacket)
+  liftIO $ debugM Socks5Proxy.logger $ show (DB.length bs, show btPacket)
   return bs
 
 tamperInc = tamperOut
 
 
 tamperingInit :: InitHook
-tamperingInit s1 s2 = return $ PacketHandlers tamperOut tamperOut
+tamperingInit s1 s2 = return $ PacketHandlers printHandler printHandler
 
 
 saveToHandle handle bs = do
   liftIO $ P.putStrLn $ show bs
   
-  liftIO $ DatB.hPutStr handle bs
+  liftIO $ DB.hPutStr handle bs
   liftIO $ hFlush handle
   
   return bs
 
-testWriteToFile = do
-  fh <- openFile "test" WriteMode
-  DatB.hPutStr fh (DBC.pack "this is me niggas")
-  hFlush fh
-  threadDelay (10^8)
+
+
+printHandler :: PacketHandler
+printHandler
+  = conduitParser (headerParser <|> packageParser)
+    =$= DCL.mapM (\(_, pack) -> do
+      let prnt p = liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
+      case pack of 
+        Right (Piece num sz payload) ->
+          let trans = return in 
+          prnt ("piece") >> (trans payload) >>= (return . serializePackage . (Piece num sz))
+        Right other -> do
+          let serialized = serializePackage other
+          prnt ("other than a piece " P.++ (show $ DB.drop 4 $ DB.take 5 $ serialized))
+          return $ serialized
+        Left bs -> do
+          prnt ("unparsable package " P.++ (show $ DB.head bs))
+          return $ prefixLen bs 
+        )
+
 
 runRevTamperingProxy = withSocketsDo $ do
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
 
+{-
   let inFile = "incomingTraffic"
       outFile = "outgoingTraffic"
   hIn <- liftIO $ openFile inFile WriteMode
   hOut <- liftIO $ openFile outFile WriteMode
+-}
 
   let inputPort = PortNumber 8888
       outputPort = PortNum $ toggleEndianW16 6881 
   liftIO $ debugM Socks5Proxy.logger
     $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
-  runServer (Config inputPort (\ s1 s2 -> return $ PacketHandlers (saveToHandle hIn) (saveToHandle hOut))
+  runServer (Config inputPort tamperingInit
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
                   outputPort $ readIPv4 "127.0.0.1"))
-
--}

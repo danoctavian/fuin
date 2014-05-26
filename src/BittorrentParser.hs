@@ -3,10 +3,10 @@ where
 
 import Prelude as P
 import Control.Applicative hiding (empty)
-import Control.Monad
+import Control.Monad as CM
 
 import Data.Bits
-import Data.Maybe
+import Data.Maybe as DM
 import Data.Monoid
 import qualified Data.ByteString as DB
 import qualified Data.ByteString.Lazy as DBL
@@ -26,6 +26,9 @@ import Data.Attoparsec.Binary
 import Data.Word
 import Data.Char
 import System.IO
+
+import Data.Conduit as DC
+import Data.Conduit.List as DCL
 
 import Data.ByteString.Char8 as DBC
 --import ConsoleP
@@ -95,10 +98,10 @@ instance Serialize Message where
     put (Have pn)       = p8 4 *> p32be pn
     put (BitField bf)   = p8 5 *> putLazyByteString bf
     put (Request pn (Block os sz))
-                        = p8 6 *> mapM_ p32be [pn,os,sz]
-    put (Piece pn os c) = p8 7 *> mapM_ p32be [pn,os] *> putByteString c
+                        = p8 6 *> CM.mapM_ p32be [pn,os,sz]
+    put (Piece pn os c) = p8 7 *> CM.mapM_ p32be [pn,os] *> putByteString c
     put (Cancel pn (Block os sz))
-                        = p8 8 *> mapM_ p32be [pn,os,sz]
+                        = p8 8 *> CM.mapM_ p32be [pn,os,sz]
     put (Port p)        = p8 9 *> (putWord16be . fromIntegral $ p)
     put (Handshake _ raw) = putByteString raw
     
@@ -167,11 +170,11 @@ extensionBits = [(Fast, 62), (ExtensionProtocol, 44), (DHT, 64)]
 -- 
 decodeCapabilities :: Word64 -> [Capabilities]
 decodeCapabilities w64
-    = catMaybes $ P.map (\(ext, bit) -> if' (testBit w64 (64 - bit)) (Just ext) Nothing) extensionBits
+    = DM.catMaybes $ P.map (\(ext, bit) -> if' (testBit w64 (64 - bit)) (Just ext) Nothing) extensionBits
 
 findCapabilities :: Word64 -> [Int]
 findCapabilities w64 =
-  catMaybes $ P.map (\bit -> if' (testBit w64 (64 - bit)) (Just bit) Nothing) [0..63]
+  DM.catMaybes $ P.map (\bit -> if' (testBit w64 (64 - bit)) (Just bit) Nothing) [0..63]
 
 packageParser :: Parser (Either ByteString Message)
 packageParser = do
@@ -183,13 +186,18 @@ packageParser = do
                         (Right m) -> Right m
 
 runTestParse = do
-    bs <- DB.readFile "delugeToUTorrentSample/incomingTraffic"
+    bs <- DB.readFile "delugeToUTorrentSample/outgoingTraffic"
+    P.putStrLn $ show $ DB.take (72 + 218 + 4 + 1 + 4 + 3 + 4 + 3 + 4 + 1) bs
     P.putStrLn $ show $ (\(DAC.Done _ [Right (Handshake _ bs)]) -> DA.parse headerParser bs) $
                         -- (P.length $ P.filter isP r,  P.length r) ) $ 
                         DA.parse parseWith2 bs
 
-serializePackage pack
-  = prefixLen $ encode pack 
+
+
+serializePackage pack = case pack of
+    (Handshake _ _) -> encode pack
+    other -> prefixLen . encode $ pack
+
 
 prefixLen bs =  DB.concat [encode $ (\l -> fromIntegral l :: Word32) $ DB.length bs, bs]
 
