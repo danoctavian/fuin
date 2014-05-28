@@ -72,3 +72,10 @@ word8sToWord32 bytes =  sum $ P.zipWith (*)
 iterateForever :: (Monad m) => (a -> m a) -> a -> m b
 iterateForever f v = f v >>= iterateForever f
 
+
+-- NETWORK UTILS
+
+
+inferAddrFamily :: SockAddr -> Family 
+inferAddrFamily (SockAddrInet _ _) = AF_INET
+inferAddrFamily (SockAddrInet6 _ _ _ _) = AF_INET6

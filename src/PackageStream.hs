@@ -16,7 +16,7 @@ module PackageStream where
 import Utils
 import Control.Monad
 import Prelude as P
-import Data.ByteString as BS
+import Data.ByteString as DB
 import Data.ByteString.Char8 as BSC
 --import Data.ByteString.Lazy as BSL
 import Data.Conduit as DC
@@ -67,6 +67,12 @@ type PayloadTransformer = (MonadIO m) => ByteString -> m ByteString
 type Send = (MonadIO m) => PackageStream.Message -> m ()
 type Receive = (MonadIO m) => m PackageStream.Message
 
+
+data Connection = Connection {
+                  connSend :: (MonadIO m) => DB.ByteString -> m (),
+                  connReceive :: (MonadIO m) => m DB.ByteString 
+                }
+
 data Packet = Packet ByteString | Kill
   deriving (Show, Eq)
 
@@ -116,7 +122,7 @@ outgoingSink (input, output) encryption = do
   chanPacket <- liftIO $ atomically $ readTChan input
   case chanPacket of
     (Packet packet) -> do
-      bytes <- fmap BS.concat $ isolateWhileSmth (BS.length packet - (overhead encryption)) =$ CL.consume
+      bytes <- fmap DB.concat $ isolateWhileSmth (DB.length packet - (overhead encryption)) =$ CL.consume
       let (encryptedPayload, newEncryption) = (applyEncryption encryption) $ insertPayload packet bytes (overhead encryption)
       liftIO $ atomically $ writeTChan output $ encryptedPayload
       outgoingSink (input, output) newEncryption
@@ -159,13 +165,13 @@ insertPayload :: ByteString -> ByteString -> Int -> Either ByteString ByteString
 insertPayload oldPacket payload encrOverhead
   | lenPayload == 0 = Left oldPacket
   | lenPayload +encrOverhead == lenOldPacket = Right payload
-  | lenPayload + encrOverhead < lenOldPacket = Right $ BS.concat [payload, padding (lenOldPacket - lenPayload)]
+  | lenPayload + encrOverhead < lenOldPacket = Right $ DB.concat [payload, padding (lenOldPacket - lenPayload)]
   | otherwise = error "len payload < len oldpacket"
     where
-      lenPayload = BS.length payload
-      lenOldPacket = BS.length oldPacket
+      lenPayload = DB.length payload
+      lenOldPacket = DB.length oldPacket
 
-streamFormat bs = BS.concat [messageHeader, DS.encode $ BS.length bs,
+streamFormat bs = DB.concat [messageHeader, DS.encode $ DB.length bs,
                             dataHeader, bs]
 
 noDataMessage = streamFormat $ (BSC.pack "")
@@ -174,7 +180,7 @@ noDataMessage = streamFormat $ (BSC.pack "")
 -- padding value - a magical value used for padding the package
 pad :: Word8
 pad = 69
-padding size = BS.replicate size pad
+padding size = DB.replicate size pad
 {-
 data Message = Message ByteString
   deriving Show
@@ -182,7 +188,7 @@ data Message = Message ByteString
 -- isolate n bytes OR until Nothing is encountered
 isolateWhileSmth :: Monad m
         => Int
-        -> Conduit (Maybe BS.ByteString) m BS.ByteString
+        -> Conduit (Maybe DB.ByteString) m DB.ByteString
 isolateWhileSmth =
     loop
   where
@@ -193,12 +199,12 @@ isolateWhileSmth =
             Nothing -> return ()
             Just Nothing -> return ()
             Just (Just bs) -> do
-                let (a, b) = BS.splitAt count bs
-                case count - BS.length a of
+                let (a, b) = DB.splitAt count bs
+                case count - DB.length a of
                     0 -> do
-                        unless (BS.null b) $ leftover $ Just b
+                        unless (DB.null b) $ leftover $ Just b
                         DC.yield a
-                    count' -> assert (BS.null b) $ DC.yield a >> loop count'
+                    count' -> assert (DB.null b) $ DC.yield a >> loop count'
 
 
 
@@ -221,7 +227,7 @@ chanSink chan = do
   when (isJust x) $ liftIO $ atomically $ writeTChan chan (fromJust x)
   chanSink chan
  
-getBTPacket :: BS.ByteString -> Either String BP.Message
+getBTPacket :: DB.ByteString -> Either String BP.Message
 getBTPacket = DS.decode
 
 isPiece (Piece _ _ _) = True
@@ -245,7 +251,7 @@ pieceHandler trans bs = do
   case (getBTPacket bs) of
     Left err -> do
       liftIO $ errorM PackageStream.logger
-        ("proxied package is not bittorrent. length: " ++ (show $ BS.length bs))
+        ("proxied package is not bittorrent. length: " ++ (show $ DB.length bs))
       return bs -- continue running
     Right packet -> if' (isPiece packet)
                 ((\(Piece num size payload) ->
@@ -300,13 +306,13 @@ maybeByteSource = do
 
 parseByteSource :: Source IO ByteString
 parseByteSource = do
-  let (bs1, bs2) = BS.splitAt 5  $ byteMessage 10
+  let (bs1, bs2) = DB.splitAt 5  $ byteMessage 10
   DC.yield $ bs1
   DC.yield $ bs2
   --DC.yield $ 
   DC.yield $ byteMessage 4
 
-byteMessage size = BS.concat [messageHeader, BS.pack $ strToWord8s $ show size, dataHeader, BS.replicate size (1 :: Word8)]
+byteMessage size = DB.concat [messageHeader, DB.pack $ strToWord8s $ show size, dataHeader, DB.replicate size (1 :: Word8)]
 
 maybeByteSink :: Sink (Maybe ByteString) IO ByteString
 maybeByteSink = do
@@ -325,7 +331,7 @@ bytesink = do
   let delim = strToWord8s "Y" !! 0
   bytes <- DCB.takeWhile (\x -> x /= delim) =$ (DCB.take n)
   head <- DCB.head
-  when (isJust head && fromJust head /= delim) (leftover $ BS.pack [fromJust head]) 
+  when (isJust head && fromJust head /= delim) (leftover $ DB.pack [fromJust head]) 
   liftIO $ P.putStrLn $ "read bytes are " ++ (show bytes)
 
   bytesink
@@ -372,12 +378,12 @@ testSerialize = DS.decode $ DS.encode $ ClientGreeting $ BSC.pack "matah"
 
 
 runAutoTestParse = do
-    bs <- BS.readFile "delugeToUTorrentSample/outgoingTraffic"
-    let testSample = BS.take 314 bs
+    bs <- DB.readFile "delugeToUTorrentSample/outgoingTraffic"
+    let testSample = DB.take 314 bs
     processed <- ((CL.sourceList [testSample]) $=
                   (pieceHandler return) $$
                   --CL.map id $$
-                  (CL.fold (\b1 b2 -> BS.concat [b1, b2]) ("")))
-    P.putStrLn $ show $ BS.length processed
-    P.putStrLn $ show $ BS.length  testSample
+                  (CL.fold (\b1 b2 -> DB.concat [b1, b2]) ("")))
+    P.putStrLn $ show $ DB.length processed
+    P.putStrLn $ show $ DB.length  testSample
     P.putStrLn $ show (processed == testSample)

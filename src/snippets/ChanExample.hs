@@ -16,6 +16,9 @@ import Control.Monad.IO.Class
 import Control.Monad.Base
 import Control.Monad.Trans.Control
 
+import Data.Conduit
+import qualified Data.Conduit.List as CL
+
 import Prelude as P
 
 data MyException = ThisException | ThatException
@@ -65,3 +68,12 @@ runFork = do
   liftIO $ P.putStrLn "running a fork"
   id <- liftIO $ forkIO $ liftIO fooork 
   return ()
+
+
+
+main = do
+    (rsrc1, result1) <- CL.sourceList [1..10] $$+ CL.take 3
+    (rsrc2, result2) <- rsrc1 $$++ CL.take 3
+    (rsrc3, result3) <- rsrc2 $$++ CL.take 2
+    result4 <- rsrc3 $$+- CL.consume
+    print (result1, result2, result3, result4) 

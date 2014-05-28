@@ -54,7 +54,7 @@ run handleConnection publicPort internalPort bootstrapEnc = do
 runReverseProxy :: (MonadIO m) => PortID  -> PortID -> InitHook -> m ()
 runReverseProxy listenPort targetPort initHook
   = runServer (Config  listenPort initHook
-            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
+            (\s -> return $ Socks5Proxy.Connection CONNECT IPV4 $ SockAddrInet
                   (PortNum $ toggleEndianW16 ((\(PortNumber n) -> fromIntegral n :: Word16) targetPort))
                    $ readIPv4 "127.0.0.1"))
 
