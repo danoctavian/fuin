@@ -25,6 +25,7 @@ module with skeletons for writing protocols
 -}
 
 data ProtocolOutput a = ProtoData DB.ByteString | FinalResult a
+  deriving (Show)
 
 type ProtocolConduit a = (Monad m, MonadNetworkProtocol m) => Conduit DB.ByteString m (ProtocolOutput a)
 

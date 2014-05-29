@@ -6,7 +6,7 @@
 
 module ExtendedORPort where
 
-
+import Prelude as P
 import Data.ByteString as DB
 import Data.ByteString.Char8 as DBC
 import Data.Conduit.Network
@@ -78,9 +78,11 @@ dialORPort clientNonce authCookie methodName remoteAddr = do
 
 
 authORPort clientNonce authCookie = do
-  authTypes <- fmap toStrict $ DCB.takeWhile (0 /=) =$ (DCB.take 256)
+  let authTypesMaxSize = 256
+  authTypes <- fmap toStrict $ DCB.takeWhile (0 /=) =$ (DCB.take authTypesMaxSize)
+  endByte <- readData 1 -- clear out the last byte
   let supportedAuth = 1
-  when (not $ DB.elem supportedAuth authTypes) $
+  when ((not $ DB.elem supportedAuth authTypes) || DB.length authTypes > authTypesMaxSize) $
     throwError $ "server did not offer auth type " ++ (show supportedAuth)
   writeData . DB.pack $ [supportedAuth]
   writeData clientNonce
@@ -88,15 +90,11 @@ authORPort clientNonce authCookie = do
   serverNonce <- readData nonceSize
   let expectedServerHash = clientServerHash authServerHashHeader authCookie clientNonce serverNonce
   let clientHash = clientServerHash authClientHashHeader authCookie clientNonce serverNonce
-  when (serverHash /= expectedServerHash) $ throwError "Error server hash doesn't match expected value"
+  when (serverHash /= expectedServerHash) $ throwError $ "Error server hash doesn't match expected value " ++ (show serverHash)
   writeData clientHash
   status <- readData 1
   when (DB.head status /= 1) $ throwError "server rejected authentication"
   return ()
-
-
---extOrCmdDone extOrCmdUserAddr extOrCmdTransport extOrCmdOkay extOrCmdDeny     
-
  
 extOrCmdDone      = 0x0000
 extOrCmdUserAddr  = 0x0001
@@ -147,3 +145,32 @@ clientServerHash header authCookie clientNonce serverNonce =
   DB.pack $ hmac (HashMethod SHA256.hash 256) 
         (DB.unpack authCookie) $ DB.unpack $ DB.concat [header, clientNonce, serverNonce]
 
+
+{-
+  DEBUG CODE:
+  delete when done
+-}
+orPortServerBytes clientNonce authCookie = do
+  DC.yield "\3\1\2\0" -- auth type
+  let sNonce = compl "serverNonce" nonceSize
+  let sHash = clientServerHash authServerHashHeader authCookie clientNonce sNonce
+  liftIO $ P.putStrLn $ show sHash
+  DC.yield sHash
+  DC.yield sNonce
+  DC.yield "\1"
+  DC.yield $ encode $ ORPortCommand extOrCmdOkay DB.empty
+
+awaitPrnt :: (MonadNetworkProtocol m, MonadIO m) => Sink (ProtocolOutput String) m ()
+awaitPrnt = DC.awaitForever (liftIO . P.putStrLn . show)
+
+
+compl bs sz = DB.concat [bs, DBC.replicate (sz - (DB.length bs)) 'A']
+testOrPortProtocol :: (MonadNetworkProtocol m, MonadIO m) => m ()
+testOrPortProtocol
+  = do
+  let clientNonce = compl "clientNonce" 32
+  let authCookie = compl "authCookie" 32
+  let methodName = compl "methodName" 32
+  let remoteAddr = compl "remoteAddr" 32
+  (orPortServerBytes clientNonce authCookie)  =$ (dialORPort clientNonce authCookie methodName remoteAddr) $$ awaitPrnt
+  return ()
