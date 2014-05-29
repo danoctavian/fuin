@@ -11,6 +11,7 @@ import Data.Serialize.Put
 import Data.Serialize.Get
 import Network.Socket
 import Data.List.Split as DLS
+import Data.List as DL
 
 localhost = "localhost"
 
@@ -21,6 +22,9 @@ if' x a b = if x then a else b
 fromRight (Right x) = x
 isRight (Right _) = True
 isRight _ = False
+
+select :: a -> [(Bool, a)] -> a
+select def = maybe def snd . DL.find fst
 
 toBool (Just x) = True
 toBool Nothing = False 
@@ -50,8 +54,8 @@ splitFor delim str = if' (rest == BSC.pack "") ([chunk])
     (chunk, rest) = BSC.breakSubstring delim str
     dL = BSC.length delim
 
-toStrict1 :: DBSL.ByteString -> DBS.ByteString
-toStrict1 = DBS.concat . DBSL.toChunks
+toStrict :: DBSL.ByteString -> DBS.ByteString
+toStrict = DBS.concat . DBSL.toChunks
 
 toggleEndianW16 :: Word16 -> Word16
 toggleEndianW16 = fromRight . (runGet getWord16be) . runPut . putWord16le 

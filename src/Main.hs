@@ -9,6 +9,7 @@ import Server
 import FakeClient
 import System.Environment
 import BittorrentParser
+import NetworkProtocol
 import ExtendedORPort
 
 main = do

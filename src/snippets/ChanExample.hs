@@ -6,6 +6,7 @@
 
 module ChanExample where
 
+import Prelude as P
 import Control.Concurrent.Chan
 import Data.Char
 import Control.Concurrent
@@ -15,8 +16,11 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Base
 import Control.Monad.Trans.Control
+import Data.ByteString.Char8 as DBC
+import Data.Conduit.Binary as DCB
+import Data.Char
 
-import Data.Conduit
+import Data.Conduit as DC
 import qualified Data.Conduit.List as CL
 
 import Prelude as P
@@ -28,7 +32,7 @@ instance Exception MyException
 
 readWords :: Chan String ->  IO ()
 readWords chan = do
-  line <- getLine
+  line <- P.getLine
   writeChan chan line
   readWords chan
 
@@ -36,7 +40,7 @@ readWords chan = do
 printWords :: Chan String -> IO ()
 printWords chan =  do
   line <- readChan chan
-  putStrLn $ map toUpper line
+  P.putStrLn $ P.map toUpper line
   printWords chan
 
 
@@ -70,8 +74,19 @@ runFork = do
   return ()
 
 
+byteSource =
+  DC.yield (DBC.pack "hellomotherfucker")
 
-main = do
+
+prntSink = awaitForever (\x -> liftIO $ P.putStrLn $ show x)
+
+takes = do
+  bs <- DCB.takeWhile ((fromIntegral $ ord 'o') /=) =$ (DCB.take 10)
+  DC.yield bs
+
+testTakes = byteSource =$ takes $$ prntSink
+
+resumables = do
     (rsrc1, result1) <- CL.sourceList [1..10] $$+ CL.take 3
     (rsrc2, result2) <- rsrc1 $$++ CL.take 3
     (rsrc3, result3) <- rsrc2 $$++ CL.take 2
