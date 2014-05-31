@@ -25,6 +25,9 @@ import Data.Digest.SHA256 as SHA256
 import Data.Word
 import GHC.Generics
 
+import Data.Attoparsec as DA
+import Data.Attoparsec.Char8 as DAC
+
 import Control.Applicative
 
 import Data.Serialize hiding (Done)
@@ -45,8 +48,10 @@ https://gitweb.torproject.org/torspec.git/blob/HEAD:/pt-spec.txt
 data ORPortInfo = ORPortInfo  {orAddr :: SockAddr}
                 | ExtendedORPortInfo {orAddr :: SockAddr, authCookie :: DB.ByteString}                            
 
+-- bytes
 hashSize = 32
 nonceSize = 32
+cookieSize = 32
 
 makeORPortConnection :: (MonadNetworkProtocol m, MonadIO m) =>
     ORPortInfo -> SockAddr -> ByteString -> m Socket
@@ -90,7 +95,7 @@ authORPort clientNonce authCookie = do
   serverNonce <- readData nonceSize
   let expectedServerHash = clientServerHash authServerHashHeader authCookie clientNonce serverNonce
   let clientHash = clientServerHash authClientHashHeader authCookie clientNonce serverNonce
-  when (serverHash /= expectedServerHash) $ throwError $ "Error server hash doesn't match expected value " ++ (show serverHash)
+  when (serverHash /= expectedServerHash) $ throwError $ "Error server hash doesn't match expected value"
   writeData clientHash
   status <- readData 1
   when (DB.head status /= 1) $ throwError "server rejected authentication"
@@ -142,9 +147,13 @@ authClientHashHeader = "ExtORPort authentication client-to-server hash"
 
 clientServerHash :: ByteString -> ByteString -> ByteString -> ByteString -> ByteString
 clientServerHash header authCookie clientNonce serverNonce = 
-  DB.pack $ hmac (HashMethod SHA256.hash 256) 
+  DB.pack $ hmac (HashMethod SHA256.hash 512) -- why 512? casue fuck you that's why 
         (DB.unpack authCookie) $ DB.unpack $ DB.concat [header, clientNonce, serverNonce]
 
+
+authCookieHeader = "! Extended ORPort Auth Cookie !\x0a"
+parseAuthCookie :: Parser ByteString
+parseAuthCookie = string authCookieHeader *> DA.take cookieSize
 
 {-
   DEBUG CODE:
@@ -174,3 +183,20 @@ testOrPortProtocol
   let remoteAddr = compl "remoteAddr" 32
   (orPortServerBytes clientNonce authCookie)  =$ (dialORPort clientNonce authCookie methodName remoteAddr) $$ awaitPrnt
   return ()
+
+
+testHash = clientServerHash authServerHashHeader (compl "authCookie" 32) (compl "clientNonce" 32) (compl "serverNonce" nonceSize)
+
+readAndCompare = do
+  file <- DB.readFile "../scripts/digesthmac"
+  P.putStrLn $ show file
+  P.putStrLn $ show testHash
+
+runTestOrConn = do
+  cookFile <- DB.readFile "/home/dan/tor/extended_orport_auth_cookie"
+  conn <- runErrorT $ makeORPortConnection
+                      ExtendedORPortInfo {orAddr = (SockAddrInet 6669  $ readIPv4 "127.0.0.1"),
+                                          authCookie  = fromRight $ parseOnly parseAuthCookie cookFile}
+                      (SockAddrInet 1234 $ readIPv4 "127.0.0.1")
+                      "foo"
+  liftIO $ P.putStrLn $ "done with connection result is " P.++ (show conn)
