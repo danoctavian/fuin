@@ -11,6 +11,8 @@ import System.Environment
 import BittorrentParser
 import NetworkProtocol
 import ExtendedORPort
+import DelugeAPI
+import REncode
 
 main = do
   P.putStrLn "main program running"
