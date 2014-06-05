@@ -11,6 +11,7 @@ import Control.Monad.Trans.Control
 import Control.Monad.Error.Class
 import Network
 import Network.Connection
+import Data.ByteString as DB
 
 {-
 Defines the interface for interacting with a bittorrent client
@@ -36,6 +37,7 @@ type InitTorrentClientConn = (MonadTorrentClient m) => m TorrentClientConn
 
 data TorrentClientConn =  TorrentClientConn {
                             addMagnetLink :: (MonadTorrentClient m) => String -> m (),
+                            addTorrentFile :: (MonadTorrentClient m) => String -> DB.ByteString -> m TorrentHash,
                             listTorrents :: (MonadTorrentClient m) => m [Torrent],
                             pauseTorrent :: (MonadTorrentClient m) => TorrentHash -> m (),
                             setProxySettings :: (MonadTorrentClient m) => [ProxySetting] -> m (),

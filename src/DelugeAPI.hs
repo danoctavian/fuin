@@ -38,6 +38,7 @@ import Control.Concurrent
 import Network.Connection as NC
 import System.Random  as SR
 
+import Data.ByteString.Base64 as Base64
 import Data.Map as DM
 import Data.Serialize as DS
 import Data.Attoparsec as DA
@@ -66,6 +67,7 @@ makeDelugeConn hostName portNum (user, pass) = do
   sendMsg dConn $ login user pass
   return $ TorrentClientConn {
                             addMagnetLink = addLink dConn,
+                            addTorrentFile = addFile dConn,
                             listTorrents = list dConn,
                             pauseTorrent = pause dConn,
                             setProxySettings = proxySettings dConn,
@@ -74,12 +76,19 @@ makeDelugeConn hostName portNum (user, pass) = do
 
 data DelugeConn = DelugeConn Connection StdGen
 data DelugeResponse = SessionState [DB.ByteString] | TorrentStatus {tName :: DB.ByteString} | DelugeError String | Success
-                    | CurrentConfig | Plain REncode
+                    | CurrentConfig | NewTorrentFile TorrentHash | Plain REncode
   deriving (Show, Eq)
 
 data DelugeCmd = DelugeCmd {cmdReq :: Integer -> REncode, cmdResp :: REncode -> DelugeResponse}
 
 addLink delugeConn link = undefined
+
+addFile delugeConn fileName fileContent
+  = do
+    resp <- (sendMsg delugeConn $ addTorrentFileCmd fileName $ Base64.encode fileContent)
+    liftIO $ P.putStrLn $ show resp
+    return ()
+
 list delugeConn = do
    (Right (SessionState tids)) <- sendMsg delugeConn sessionState
    statuses <- forM tids $ (sendMsg delugeConn) . torrentStatus 
@@ -90,16 +99,25 @@ pause delugeConn hash = undefined
 proxySettings delugeConn settings = undefined
 addPeer torrentHash ip port = undefined
 
+-- commands structure and return value parsing
 login user password =
   DelugeCmd (msg "daemon.login" [RString $ DBC.pack user, RString $ DBC.pack password] DM.empty)
   (\r -> Success)
+
 info = DelugeCmd (msg "daemon.info" [] DM.empty) (\r -> Success)
+
 currentConfig = DelugeCmd (msg "core.get_config" [] DM.empty) (\r -> CurrentConfig)
+
 sessionState = DelugeCmd (msg "core.get_session_state" [] DM.empty)
                (\(RList ids) -> SessionState $ P.map (\(RString s) -> s) ids)
+
 torrentStatus torrentId
   = DelugeCmd (msg "core.get_torrent_status" [RString torrentId, RList [RString "name"], RBool False] DM.empty)
     (\(RDict mp) -> TorrentStatus $ (\(RString s) -> s) $ fromJust $ DM.lookup (RString "name") mp)
+
+addTorrentFileCmd fName fContent -- content is assumed to be base64 encoded
+  = DelugeCmd  (msg "core.add_torrent_file" [RString $ DBC.pack fName, RString fContent, RDict DM.empty] DM.empty)
+                (\(RString s) -> NewTorrentFile s)
 
 sendMsg (DelugeConn conn stdGen) msg = do
   randId <- liftIO $ fmap abs (randomIO :: IO Integer)
@@ -118,9 +136,17 @@ serializeMsg m =  toStrict $ CCZ.compress $ DBLC.fromChunks $ (:[]) $ DS.encode 
 testDriveDelugeConn :: (MonadTorrentClient m) => m ()
 testDriveDelugeConn = do
   dc <- makeDelugeConn "localhost" 58846 ("boss", "pass")
-  leList <- listTorrents dc
-  liftIO $ P.putStrLn $ show leList
+  listAndPrint dc
+  let fileName = "ubuntu-14.04-desktop-amd64.iso.torrent"
+  let path = "/home/dan/torrentDirs/others/"
+  tFile <- liftIO $ DB.readFile (path P.++ fileName)
+  liftIO $ P.putStrLn $ show $ DB.length tFile
+  resp <- addTorrentFile dc fileName tFile
+  liftIO $ P.putStrLn $ show resp
+  listAndPrint dc
   return ()
+
+listAndPrint dc = (listTorrents dc) >>= (liftIO . P.putStrLn . show)
 
 runTestDrive :: IO ()
 runTestDrive = do
