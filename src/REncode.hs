@@ -63,8 +63,9 @@ putREncoded (RBool b) = putWord8 $ if' b chrTrue chrFalse
 putREncoded None = putWord8 chrNone
 
 rEncodeParser :: Parser REncode
-rEncodeParser = rIntParser  <|> rFloatParser <|> rDoubleParser 
-                <|> rBoolParser <|> rStringParser <|> rListParser <|> rDictParser
+rEncodeParser = rIntParser <|> rFloatParser <|> rDoubleParser 
+                <|> rBoolParser <|> rNoneParser <|> rStringParser
+                <|> rListParser <|> rDictParser
 
 rStringParser :: Parser REncode 
 rStringParser
@@ -106,6 +107,7 @@ rFloatParser = rRationalParser RFloat getFloat32be chrFloat32 4
 rDoubleParser = rRationalParser RDouble getFloat64be chrFloat64 8
 
 rBoolParser =  (word8 chrTrue *> pure (RBool True)) <|> (word8 chrFalse *> pure (RBool False) )
+rNoneParser = word8 chrNone *> pure None
 
 byteRange start count = (start, start + count - 1)
 fromRString (RString s) = s

@@ -112,12 +112,13 @@ foreverSendReceive sock seed = do
 type PingChan = TChan Int
 pingMsg = 23
 
-makeFakeTorrentClientConn :: PingChan -> MakeTorrentClientConn
+makeFakeTorrentClientConn :: PingChan -> InitTorrentClientConn
 makeFakeTorrentClientConn pingChan = return $ TorrentClientConn {
                             addMagnetLink = (\s -> liftIO $ atomically $ writeTChan pingChan pingMsg >>  return () ),
                             listTorrents = return [],
                             pauseTorrent = (\h -> return () ),
-                            setProxySettings = (\sets -> (liftIO $ debugM FakeClient.logger $ show sets) >>  return ())
+                            setProxySettings = (\sets -> (liftIO $ debugM FakeClient.logger $ show sets) >>  return ()),
+                            connectPeer = (\hash ip port -> (liftIO $ debugM FakeClient.logger $ show hash) >>  return ())
                         }
 
 runFuinClient = do

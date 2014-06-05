@@ -59,7 +59,7 @@ type MonadFuinClient m = (MonadIO m, MonadBaseControl IO m)
 logger = "fuin.client"  
 btConnStartTimeout = 10 * 15 ^ 6 -- microseconds
 
-init :: (MonadFuinClient m, MonadError String m) => PortID -> MakeTorrentClientConn -> m (Transporter)
+init :: (MonadFuinClient m, MonadError String m) => PortID -> InitTorrentClientConn -> m (Transporter)
 init port makeTorrentConn = do
   liftIO $ debugM Client.logger "initializing..."
 

@@ -10,10 +10,21 @@ Cabal-Version:       >=1.2
 Executable torrentcamo
   Main-is:           Main.hs
   Extensions: PackageImports
-  Build-Depends:     base >= 4.3.1.0 && < 5 , unix , MaybeT , network , bytestring , data-default-class , haxy , HTTP , mtl , directory
-                                            , filepath , transformers , attoparsec , conduit == 1.1.0 , strict , splice , cereal , binary , stm >= 2.4.2
-                                            , conduit-extra , vector , text , unordered-containers , aeson , tagsoup , url , http-conduit
-                                            , http-server >= 1.0.4 , hslogger , resourcet , attoparsec-binary , split , lifted-base
-                                            , monad-control , transformers-base , containers , primitive , mwc-random , byteable , cipher-aes
-                                            , exceptions , socks , random , crypto-api, Crypto , ghc-prim , cereal-conduit , connection , bencode
-                                            , zlib
+  Build-Depends:      base >=4.3.1.0 && <5, unix -any, MaybeT ==0.1.2.*,
+               network ==2.4.2.2.*, bytestring -any, data-default-class ==0.0.1.*,
+               haxy ==0.9.1.*, HTTP ==4000.2.12.*, mtl -any, directory -any,
+               filepath -any, transformers -any, attoparsec ==0.11.2.1.*,
+               conduit ==1.1.0.*, strict ==0.3.2.*, splice ==0.6.1.1.*,
+               cereal ==0.4.0.1.*, binary -any, stm ==2.4.2.*,
+               conduit-extra ==1.1.0.*, vector ==0.10.9.1.*, text ==1.1.0.1.*,
+               unordered-containers ==0.2.3.3.*, aeson ==0.7.0.2.*,
+               tagsoup ==0.13.1.*, url ==2.1.3.*, http-conduit ==2.1.0.*,
+               http-server ==1.0.4.*, hslogger ==1.2.3.*, resourcet ==1.1.1.*,
+               attoparsec-binary ==0.2.*, split ==0.2.2.*,
+               lifted-base ==0.2.2.1.*, monad-control ==0.3.2.3.*,
+               transformers-base ==0.4.1.*, containers -any,
+               primitive ==0.5.2.1.*, mwc-random ==0.13.1.1.*, byteable ==0.1.1.*,
+               cipher-aes ==0.2.7.*, exceptions ==0.5.*, socks ==0.5.4.*,
+               random -any, crypto-api ==0.13.*, Crypto ==4.2.5.1.*,
+               ghc-prim -any, cereal-conduit ==0.7.2.2.*, connection ==0.2.0.*,
+               bencode ==0.5.*, zlib -any , data-default ==0.5.3.*, tls ==1.2.8.*

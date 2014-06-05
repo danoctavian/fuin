@@ -35,7 +35,8 @@ import System.Log.Logger
 import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
 import Network
-
+import Network.Connection
+import Network.Socket.Internal
 import TorrentClient
 
 
@@ -53,11 +54,12 @@ data UTorrentConn = UTorrentConn { baseURL :: URL, user :: String, pass :: Strin
   deriving Show
 
 
-
-makeUTorrentConn baseUrl user pass = do
-  conn <- uTorentConn baseUrl user pass
+makeUTorrentConn :: MakeTorrentClientConn
+makeUTorrentConn hostName portNum (user, pass) = do
+  conn <- uTorentConn (utServerURL hostName portNum) user pass
   return $ TorrentClientConn {addMagnetLink = addUrl conn, listTorrents = list conn,
-                              pauseTorrent = pause conn, setProxySettings = setSettings conn}
+                              pauseTorrent = pause conn, setProxySettings = setSettings conn,
+                              connectPeer = addPeer conn}
 
 
 -- refactor this crap based on the previous pattern
@@ -84,13 +86,16 @@ makeRequest conn = do
 requestWithParams conn params = fmap responseBody $ makeRequest conn
                   {baseURL = P.foldl (\u p -> add_param u p) (baseURL conn) params}
  
-
-list conn = fmap ((P.map Torrent) . (\(Array a) -> DV.toList a) . fromJust . (Data.HashMap.Strict.lookup "torrents")
+-- TODO: correctly implement this
+list conn = undefined
+{-
+list conn = fmap ((P.map (Torrent . show) ) . (\(Array a) -> DV.toList a) . fromJust . (Data.HashMap.Strict.lookup "torrents")
                               . fromJust . (\s -> decode s :: Maybe Object))
               $ requestWithParams conn [("list", "1")]
-
+-}
 pause conn hash = requestWithParams conn [(hashParam, hash), (actionParam, "pause")] >> return ()
 addUrl conn url = requestWithParams conn [("s", url), (actionParam, "add-url")] >> return ()
+addPeer conn hash host port = undefined -- the utorrent server currently doesn't support this
 
 settingToParam (ProxySetType proxyType) = ("proxy.type", show . fromEnum $ proxyType)
 settingToParam (ProxyIP ip) =  ("proxy.proxy", ip)
@@ -107,9 +112,10 @@ setSettings conn settings =if' (settings == []) (return ()) $ do
 getToken :: String -> String 
 getToken = (\(TagText t) -> t) . (!! 2) . parseTags 
 
+utServerURL :: HostName -> PortNumber -> String
+utServerURL hostName (PortNum p) = "http://" P.++ hostName P.++ ":" P.++ (show p)
 
 {-
-
 DEBUGGING code used for manual testing
 TODO: remove when done
 
@@ -120,7 +126,7 @@ runTorrentClientScript = do
   r2 <- addUrl conn archMagnet
   liftIO $ debugM logger $ "addUrl RESPONSE IS " ++  (show r2)
   r <- list conn
-  liftIO $ debugM logger $ show r
+--  liftIO $ debugM logger $ show r
   --r3 <- setProxySettings conn [ProxySetType Socks4, ProxyIP "127.0.0.69", ProxyPort 6969, ProxyP2P True]
   --liftIO $ debugM logger $ show $  r3
   return ()
