@@ -65,7 +65,7 @@ init port makeTorrentConn = do
 
   addressDict <- liftIO $ newTVarIO DM.empty
   liftIO $ forkIO $ Socks5Proxy.runServer $ Config {listenPort = port, initHook = clientSocks5Init addressDict,
-                                    getConn = doSocksHandshake}
+                                    getConn = doSocks5Handshake}
 
   torrentClient <- makeTorrentConn
   setProxySettings torrentClient [ProxySetType Socks4, ProxyIP localhost, ProxyPort $ port, ProxyP2P True]

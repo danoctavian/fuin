@@ -26,8 +26,8 @@ isRight _ = False
 select :: a -> [(Bool, a)] -> a
 select def = maybe def snd . DL.find fst
 
-toBool (Just x) = True
-toBool Nothing = False 
+maybeToBool (Just x) = True
+maybeToBool Nothing = False 
 
 word8ToChar :: Word8 -> Char
 word8ToChar =  chr . fromIntegral

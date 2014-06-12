@@ -25,9 +25,9 @@ def getTime():
 packCap = open("packCap" + str(getTime()), "w+")
 
 def printData(data, origin):
-  print getTime()
-  print "origin: " + origin
-  print "data size " + str(len(data))
+  #print getTime()
+  #print "origin: " + origin
+  #print "data size " + str(len(data))
   packCap.write("5692433 " + origin + " " + str(getTime()) + " " + str(len(data)) + " \n")
   packCap.write(data)
   packCap.write("\n")
@@ -170,6 +170,7 @@ class SOCKSv4(protocol.Protocol):
             d = self.connectClass(server, port, SOCKSv4Outgoing, self)
             d.addErrback(lambda result, self = self: self.makeReply(91))
         elif code == 2: # BIND
+            print "BINDING REQUESTED OMFG FUCK THIS SUCKS BALLS"
             d = self.listenClass(0, SOCKSv4IncomingFactory, self, server)
             d.addCallback(lambda (h, p),
                           self = self: self.makeReply(90, 0, p, h))

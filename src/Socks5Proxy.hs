@@ -23,7 +23,7 @@ import Control.Monad.Error as CME
 import Control.Monad.Error.Class
 import Control.Monad as CM
 import qualified Data.ByteString.Lazy as BSL
-import Data.Attoparsec 
+import Data.Attoparsec as DA
 import Data.Attoparsec.Char8 as DAC
 import Data.Attoparsec.Combinator as DACo
 import Data.Attoparsec.Binary
@@ -101,13 +101,18 @@ loop config serverSock
   = forever $ accept serverSock >>= liftIO . forkIO . (handleReq config)
 
 
+doSocks4Handshake :: GetConn
+doSocks4Handshake conn = do
+  connRequest <- getMessage conn parseSocks4Cmd (isValidSocks4Cmd, "invalid connect command")
+  liftIO $ NBS.sendAll conn  $ DB.concat ["\0\90", DB.replicate 6 0]
+  return connRequest 
 
-doSocksHandshake :: GetConn
-doSocksHandshake conn = do
+doSocks5Handshake :: GetConn
+doSocks5Handshake conn = do
   hs <- getMessage conn parseHandshake (isValidHandshake, "Invalid handshake")
   liftIO $ NBS.sendAll conn "\5\0"
-  connRequest <- getMessage conn parseConnectionReq (isValidConnectionReq, "Invalid connection request")
-  liftIO $ NBS.send conn "\5\0\0\1\0\0 01c" --this is magical as fuck...
+  connRequest <- getMessage conn parseSocks5Cmd (isValidConnectionReq, "Invalid connection request")
+  liftIO $ NBS.send conn "\5\0\0\1\0\0 01c" --this is magical as fuck... it basically says to the client it's ok
   return connRequest
 
 handleReq config (sock, addr) = do
@@ -119,8 +124,8 @@ handleReq config (sock, addr) = do
   debugM Socks5Proxy.logger "done showing"
   Network.Socket.sClose sock
 
-handleConnection (Connection cmd atyp serverSockAddr) (clientSock, clientAddr) config = do
-  debugM Socks5Proxy.logger "handling connection"
+handleConnection conn@(Connection cmd atyp serverSockAddr) (clientSock, clientAddr) config = do
+  debugM Socks5Proxy.logger $ "handling connection" ++ (show conn) 
   {- getting the address can also be done as such:
   let addr = getStrAddress atyp bsAddr
   addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show $ sockAddrPort ) 
@@ -173,18 +178,34 @@ forwardPackets src dst trans = do
   return ()
 
 -- only support TCP connect. fail otherwise
-parseConnectionReq :: Parser Connection
-parseConnectionReq = do
+parseSocks5Cmd :: Parser Connection
+parseSocks5Cmd = do
   verB <- anyChar
-  cmd <- fmap fromJust $ satisfyWith (toCMD . word8ToChar) toBool
+  cmd <- fmap fromJust $ satisfyWith (toCMD . word8ToChar) maybeToBool
   anyChar
-  atyp <- fmap fromJust $ satisfyWith (toATYP . word8ToChar) toBool
+  atyp <- fmap fromJust $ satisfyWith (toATYP . word8ToChar) maybeToBool
   address <- case atyp of
     IPV4 -> DAC.take 4
     DOMAINNAME -> do {size <- fmap ord $ anyChar ; DAC.take size}
     IPV6 -> DAC.take 16
   port <- anyWord16be
-  return (Connection CONNECT atyp $ fromJust $ toSockAddress atyp address $ toggleEndianW16 port)
+  return (Connection cmd atyp $ fromJust $ toSockAddress atyp address  port)
+
+parseSocks4Cmd :: Parser Connection
+parseSocks4Cmd = do
+  versionByte <- anyChar
+  cmd <- fmap fromJust $ satisfyWith (toCMD . word8ToChar) maybeToBool
+  port <- anyWord16be
+  address <- DAC.take 4 -- only IPV4
+  let terminator = 0
+  userid <- DA.takeTill (== terminator)
+  word8 terminator
+  let atyp = IPV4
+  return (Connection cmd atyp $ fromJust $ toSockAddress atyp address  port)
+
+
+isValidSocks4Cmd :: Connection  -> Bool
+isValidSocks4Cmd _ = True
 
 isValidConnectionReq :: Connection -> Bool
 isValidConnectionReq _ = True
@@ -252,9 +273,13 @@ toAddressFamily DOMAINNAME = undefined -- TODO: wut is this
 
 -- socks5 proxy which doesn't tamper with the packets
 runNoOpSocks = withSocketsDo $ do
-  runServer (Config  (PortNumber 1080) noOpInit doSocksHandshake)
+  liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
+  runServer (Config  (PortNumber 1080) printerInit doSocks5Handshake)
 noOpInit _ _ = return $ idPacketHandlers
 
+runNoOpSocks4 = withSocketsDo $ do
+  liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
+  runServer (Config  (PortNumber 1080) printerInit doSocks4Handshake)
 
 
 
@@ -267,7 +292,7 @@ TODO; remove once done
 justPrint  flag
   = DCL.mapM $ \bs -> do
   liftIO $ debugM Socks5Proxy.logger flag
-  liftIO $ debugM Socks5Proxy.logger $ show bs
+  liftIO $ debugM Socks5Proxy.logger $ show $ DB.head bs
   return bs
 
 
