@@ -42,6 +42,7 @@ import Data.Conduit.List as DCL
 import Data.Conduit.Attoparsec
 import Control.Monad.Trans.Resource
 import Control.Applicative
+import Control.Concurrent.STM
 import System.Log.Logger
 import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
@@ -96,10 +97,9 @@ runServer config = liftIO $ withSocketsDo $  do
 
 
 
-loop config serverSock = do
-  (clientSock, addr) <- accept serverSock
-  forkIO $ handleReq config (clientSock, addr)
-  loop config serverSock
+loop config serverSock
+  = forever $ accept serverSock >>= liftIO . forkIO . (handleReq config)
+
 
 
 doSocksHandshake :: GetConn
@@ -303,8 +303,8 @@ tamperOut bs = do
 tamperInc = tamperOut
 
 
-tamperingInit :: InitHook
-tamperingInit s1 s2 = return $ PacketHandlers printHandler printHandler
+tamperingInit :: TChan String -> InitHook
+tamperingInit msgChan s1 s2 = return $ PacketHandlers (printHandler (Just msgChan)) $ printHandler Nothing
 
 
 saveToHandle handle bs = do
@@ -317,15 +317,24 @@ saveToHandle handle bs = do
 
 
 
-printHandler :: PacketHandler
-printHandler
+
+printHandler :: (Maybe (TChan String)) -> PacketHandler
+printHandler maybeChan
   = conduitParser (headerParser <|> packageParser)
     =$= DCL.mapM (\(_, pack) -> do
       let prnt p = liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
       case pack of 
-        Right (Piece num sz payload) ->
-          let trans = return in 
-          prnt ("piece") >> (trans payload) >>= (return . serializePackage . (Piece num sz))
+        Right (Piece num sz payload) -> do
+          
+          cmd <- if' (maybeChan /= Nothing)
+            (liftIO $ atomically $ tryReadTChan $ fromJust maybeChan)
+            (return Nothing)
+            --tryReadTChan
+            -- a foo modification to see if it screws up things
+          let trans = if'(cmd /= Nothing) (return. DB.reverse)  return
+          prnt ("piece")
+          newPayload <- (trans payload)
+          (return . serializePackage . (Piece num sz)) $ newPayload
         Right other -> do
           let serialized = serializePackage other
           prnt ("other than a piece " P.++ (show $ DB.drop 4 $ DB.take 5 $ serialized))
@@ -345,11 +354,15 @@ runRevTamperingProxy = withSocketsDo $ do
   hIn <- liftIO $ openFile inFile WriteMode
   hOut <- liftIO $ openFile outFile WriteMode
 -}
+  cmdChan <- liftIO $ atomically $ newTChan
 
+  liftIO $ forkIO $ forever $ do 
+    line <- liftIO $ P.getLine
+    liftIO $ atomically $ writeTChan cmdChan line
   let inputPort = PortNumber 8888
       outputPort = PortNum $ toggleEndianW16 6881 
   liftIO $ debugM Socks5Proxy.logger
     $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
-  runServer (Config inputPort tamperingInit
+  runServer (Config inputPort (tamperingInit cmdChan)
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
                   outputPort $ readIPv4 "127.0.0.1"))

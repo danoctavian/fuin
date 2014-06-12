@@ -138,7 +138,7 @@ streamIncoming appMessages pipe decryption = do
   return ()
 
 incomingPackageSource pipe decryption
-  = (chanSource pipe) $= (CL.map (decrypt decryption)) $= CL.filter (/= Nothing) $= CL.map fromJust
+  = (chanSource pipe) $= CL.map (decrypt decryption) $= CL.filter (/= Nothing) $= CL.map fromJust
         $= CL.mapM (\m -> (liftIO $ debugM PackageStream.logger $ "message incoming " ++ show m) >> return m)
         $= (conduitParser (DA.skipWhile (pad == ) >> parseMessage)) $= (CL.map snd) $=
         (CL.filter isRight) $= (CL.map fromRight)

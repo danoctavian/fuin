@@ -87,7 +87,7 @@ addFile delugeConn fileName fileContent
   = do
     resp <- (sendMsg delugeConn $ addTorrentFileCmd fileName $ Base64.encode fileContent)
     liftIO $ P.putStrLn $ show resp
-    return ()
+    return "todo"
 
 list delugeConn = do
    (Right (SessionState tids)) <- sendMsg delugeConn sessionState
@@ -117,7 +117,7 @@ torrentStatus torrentId
 
 addTorrentFileCmd fName fContent -- content is assumed to be base64 encoded
   = DelugeCmd  (msg "core.add_torrent_file" [RString $ DBC.pack fName, RString fContent, RDict DM.empty] DM.empty)
-                (\(RString s) -> NewTorrentFile s)
+                Plain --(\(RString s) -> NewTorrentFile s)
 
 sendMsg (DelugeConn conn stdGen) msg = do
   randId <- liftIO $ fmap abs (randomIO :: IO Integer)
