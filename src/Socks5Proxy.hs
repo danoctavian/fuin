@@ -47,12 +47,14 @@ import System.Log.Logger
 import System.Log.Handler.Syslog
 import System.Log.Handler.Simple
 import Data.List.Split as DLS
+import GHC.Int
+import Data.Maybe
 
 import Data.Serialize as DS
 import BittorrentParser as BP
 
 --import WireProtocol
-
+import TorrentFileParser
 import Utils
 
 data PacketHandlers = PacketHandlers {incoming :: PacketHandler, outgoing :: PacketHandler}
@@ -274,7 +276,7 @@ toAddressFamily DOMAINNAME = undefined -- TODO: wut is this
 -- socks5 proxy which doesn't tamper with the packets
 runNoOpSocks = withSocketsDo $ do
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
-  runServer (Config  (PortNumber 1080) printerInit doSocks5Handshake)
+  runServer (Config  (PortNumber 1080) printerInit doSocks4Handshake)
 noOpInit _ _ = return $ idPacketHandlers
 
 runNoOpSocks4 = withSocketsDo $ do
@@ -292,7 +294,7 @@ TODO; remove once done
 justPrint  flag
   = DCL.mapM $ \bs -> do
   liftIO $ debugM Socks5Proxy.logger flag
-  liftIO $ debugM Socks5Proxy.logger $ show $ DB.head bs
+  liftIO $ debugM Socks5Proxy.logger $ show bs
   return bs
 
 
@@ -328,8 +330,15 @@ tamperOut bs = do
 tamperInc = tamperOut
 
 
-tamperingInit :: TChan String -> InitHook
-tamperingInit msgChan s1 s2 = return $ PacketHandlers (printHandler (Just msgChan)) $ printHandler Nothing
+type GetPiece = Int ->  GHC.Int.Int64 -> GHC.Int.Int64-> BSL.ByteString
+
+tamperingInit :: Maybe (TChan String) -> (Maybe GetPiece) -> InitHook
+tamperingInit msgChan getPiece s1 s2 = do
+  liftIO $  debugM Socks5Proxy.logger  $ "local address is " ++ (show s1)
+  liftIO $  debugM Socks5Proxy.logger  $ "remote server address is " ++ (show s2)
+  return $ if' (show s2 == "90.245.5.234:6891")
+           (PacketHandlers (printHandler msgChan getPiece) $ printHandler Nothing Nothing)
+           idPacketHandlers
 
 
 saveToHandle handle bs = do
@@ -340,29 +349,33 @@ saveToHandle handle bs = do
   
   return bs
 
+tamperedPrefix = "TAMPERED"
+applyTamper bs = DB.concat [tamperedPrefix, DB.drop (DB.length tamperedPrefix) bs]
 
-
-
-printHandler :: (Maybe (TChan String)) -> PacketHandler
-printHandler maybeChan
+printHandler :: (Maybe (TChan String)) -> (Maybe GetPiece) -> PacketHandler
+printHandler maybeChan getPc
   = conduitParser (headerParser <|> packageParser)
     =$= DCL.mapM (\(_, pack) -> do
-      let prnt p = liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
+      let prnt p = liftIO $ debugM Socks5Proxy.logger $ "received BT packa ge " P.++ p
       case pack of 
-        Right (Piece num sz payload) -> do
+        Right piece@(Piece num sz payload) -> do
           
           cmd <- if' (maybeChan /= Nothing)
             (liftIO $ atomically $ tryReadTChan $ fromJust maybeChan)
             (return Nothing)
             --tryReadTChan
             -- a foo modification to see if it screws up things
-          let trans = if'(cmd /= Nothing) (return. DB.reverse)  return
+          let trans = if'(cmd /= Nothing) (return. applyTamper)  return
+         -- when (cmd /= Nothing) $ liftIO $ debugM Socks5Proxy.logger $ show piece
+
+          let fix = if' ((not (isNothing getPc)) && DB.isPrefixOf (toStrict tamperedPrefix) payload)
+                        (\ bs -> toStrict $ (fromJust getPc)  num (fromIntegral sz) (fromIntegral $ DB.length payload)) (P.id)
           prnt ("piece")
           newPayload <- (trans payload)
-          (return . serializePackage . (Piece num sz)) $ newPayload
+          (return . serializePackage . (Piece num sz)) $ fix newPayload
         Right other -> do
           let serialized = serializePackage other
-          prnt ("other than a piece " P.++ (show $ DB.drop 4 $ DB.take 5 $ serialized))
+          prnt ("other than a piece " P.++ (show $ DB.take 20 $ serialized))
           return $ serialized
         Left bs -> do
           prnt ("unparsable package " P.++ (show $ DB.head bs))
@@ -370,9 +383,27 @@ printHandler maybeChan
         )
 
 
+runTamperingSocks = do
+  getPiece <- pieceLoader "/home/dan/test/smallFile.dan.torrent" "/home/dan/test/smallFile.dan"
+  let getPieceBlock = toGetPieceBlock getPiece
+  liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
+  runServer (Config  (PortNumber 1080) (tamperingInit Nothing $ Just getPieceBlock) doSocks4Handshake)
+
+runSimpleRevTamperingProxy = do
+  liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
+  liftIO $ debugM Socks5Proxy.logger $ "running reverse tampering proxy"
+  let inputPort = PortNumber 8888
+      outputPort = PortNum $ toggleEndianW16 6891 
+  liftIO $ debugM Socks5Proxy.logger
+    $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
+  let initF = printerInit --(\s1 s2 -> return (PacketHandlers (printHandler $ Just cmdChan) $ printHandler Nothing))
+  runServer (Config inputPort initF
+            (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
+                  outputPort $ readIPv4 "127.0.0.1"))
+
 runRevTamperingProxy = withSocketsDo $ do
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
-
+  liftIO $ debugM Socks5Proxy.logger $ "running reverse tampering proxy"
 {-
   let inFile = "incomingTraffic"
       outFile = "outgoingTraffic"
@@ -381,13 +412,15 @@ runRevTamperingProxy = withSocketsDo $ do
 -}
   cmdChan <- liftIO $ atomically $ newTChan
 
+  liftIO $ atomically $ writeTChan cmdChan "mue la olteni" -- fuck up the first piece
   liftIO $ forkIO $ forever $ do 
     line <- liftIO $ P.getLine
     liftIO $ atomically $ writeTChan cmdChan line
   let inputPort = PortNumber 8888
-      outputPort = PortNum $ toggleEndianW16 6881 
+      outputPort = PortNum $ toggleEndianW16 6891 
   liftIO $ debugM Socks5Proxy.logger
     $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
-  runServer (Config inputPort (tamperingInit cmdChan)
+  let initF = (\s1 s2 -> return (PacketHandlers (printHandler (Just cmdChan) Nothing) $ printHandler Nothing Nothing))
+  runServer (Config inputPort initF
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
                   outputPort $ readIPv4 "127.0.0.1"))

@@ -13,6 +13,7 @@ import NetworkProtocol
 import ExtendedORPort
 import DelugeAPI
 import REncode
+import TorrentFileParser
 
 main = do
   P.putStrLn "main program running"
@@ -20,7 +21,7 @@ main = do
   case (read (args !! 0) :: Int) of
     0 -> runFuinServer
     1 -> runFuinClient
-    2 -> runRevProxyTest
+    2 -> runRevTamperingProxy
     --3 -> runRevTamperingProxy
 {-
 

@@ -28,4 +28,4 @@ Executable torrentcamo
                random -any, crypto-api ==0.13.*, Crypto ==4.2.5.1.*,
                ghc-prim -any, cereal-conduit ==0.7.2.2.*, connection ==0.2.0.*,
                bencode ==0.5.*, zlib -any , data-default ==0.5.3.*, tls ==1.2.8.*
-               , base64-bytestring ==1.0.0.1.*
+               , base64-bytestring ==1.0.0.1.* , syb ==0.4.1.*
