@@ -1,0 +1,106 @@
+warming up
+estimating clock resolution...
+mean is 1.354258 us (640001 iterations)
+found 6179 outliers among 639999 samples (1.0%)
+  4145 (0.6%) high severe
+estimating cost of a clock call...
+mean is 28.75924 ns (8 iterations)
+found 1 outliers among 8 samples (12.5%)
+  1 (12.5%) high mild
+
+benchmarking nginxHTTPFetch/http 1
+collecting 100 samples, 1 iterations each, in estimated 160.5574 s
+mean: 1.644148 s, lb 1.581327 s, ub 1.791001 s, ci 0.950
+std dev: 462.5012 ms, lb 232.1720 ms, ub 860.1696 ms, ci 0.950
+found 8 outliers among 100 samples (8.0%)
+  2 (2.0%) high mild
+  6 (6.0%) high severe
+variance introduced by outliers: 96.814%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 2
+collecting 100 samples, 1 iterations each, in estimated 292.3706 s
+mean: 2.962268 s, lb 2.892007 s, ub 3.137101 s, ci 0.950
+std dev: 527.6977 ms, lb 154.7635 ms, ub 942.2733 ms, ci 0.950
+found 14 outliers among 100 samples (14.0%)
+  3 (3.0%) high mild
+  11 (11.0%) high severe
+variance introduced by outliers: 92.574%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 3
+collecting 100 samples, 1 iterations each, in estimated 413.0345 s
+mean: 4.488825 s, lb 4.377419 s, ub 4.662311 s, ci 0.950
+std dev: 700.5900 ms, lb 495.5019 ms, ub 975.7329 ms, ci 0.950
+found 9 outliers among 100 samples (9.0%)
+  2 (2.0%) high mild
+  7 (7.0%) high severe
+variance introduced by outliers: 90.469%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 4
+collecting 100 samples, 1 iterations each, in estimated 575.0773 s
+mean: 6.160354 s, lb 5.990489 s, ub 6.405843 s, ci 0.950
+std dev: 1.033901 s, lb 779.3233 ms, ub 1.374488 s, ci 0.950
+found 7 outliers among 100 samples (7.0%)
+  6 (6.0%) high severe
+variance introduced by outliers: 91.530%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 5
+collecting 100 samples, 1 iterations each, in estimated 687.2775 s
+mean: 7.163835 s, lb 7.009350 s, ub 7.418287 s, ci 0.950
+std dev: 1.002159 s, lb 675.3013 ms, ub 1.380320 s, ci 0.950
+found 8 outliers among 100 samples (8.0%)
+  7 (7.0%) high severe
+variance introduced by outliers: 88.368%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 6
+collecting 100 samples, 1 iterations each, in estimated 858.3319 s
+mean: 8.444228 s, lb 8.306729 s, ub 8.664974 s, ci 0.950
+std dev: 878.2684 ms, lb 604.7172 ms, ub 1.197973 s, ci 0.950
+found 18 outliers among 100 samples (18.0%)
+  8 (8.0%) high mild
+  10 (10.0%) high severe
+variance introduced by outliers: 81.029%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 7
+collecting 100 samples, 1 iterations each, in estimated 942.3307 s
+mean: 9.890769 s, lb 9.723076 s, ub 10.13865 s, ci 0.950
+std dev: 1.033554 s, lb 759.9760 ms, ub 1.316150 s, ci 0.950
+found 11 outliers among 100 samples (11.0%)
+  2 (2.0%) high mild
+  9 (9.0%) high severe
+variance introduced by outliers: 81.038%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 8
+collecting 100 samples, 1 iterations each, in estimated 1161.551 s
+mean: 11.55662 s, lb 11.31649 s, ub 11.88713 s, ci 0.950
+std dev: 1.432540 s, lb 1.124032 s, ub 1.798364 s, ci 0.950
+found 15 outliers among 100 samples (15.0%)
+  2 (2.0%) high mild
+  13 (13.0%) high severe
+variance introduced by outliers: 85.248%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 9
+collecting 100 samples, 1 iterations each, in estimated 1619.109 s
+mean: 12.97985 s, lb 12.72156 s, ub 13.33411 s, ci 0.950
+std dev: 1.538261 s, lb 1.204006 s, ub 1.913812 s, ci 0.950
+found 15 outliers among 100 samples (15.0%)
+  14 (14.0%) high severe
+variance introduced by outliers: 84.196%
+variance is severely inflated by outliers
+
+benchmarking nginxHTTPFetch/http 10
+collecting 100 samples, 1 iterations each, in estimated 1741.579 s
+mean: 14.13202 s, lb 13.93130 s, ub 14.40953 s, ci 0.950
+std dev: 1.197504 s, lb 941.4794 ms, ub 1.478830 s, ci 0.950
+found 15 outliers among 100 samples (15.0%)
+  3 (3.0%) high mild
+  12 (12.0%) high severe
+variance introduced by outliers: 72.808%
+variance is severely inflated by outliers

@@ -336,7 +336,7 @@ tamperingInit :: Maybe (TChan String) -> (Maybe GetPiece) -> InitHook
 tamperingInit msgChan getPiece s1 s2 = do
   liftIO $  debugM Socks5Proxy.logger  $ "local address is " ++ (show s1)
   liftIO $  debugM Socks5Proxy.logger  $ "remote server address is " ++ (show s2)
-  return $ if' (show s2 == "90.245.5.234:6891")
+  return $ if' (show s2 == "151.230.134.132:6891")
            (PacketHandlers (printHandler msgChan getPiece) $ printHandler Nothing Nothing)
            idPacketHandlers
 
@@ -356,7 +356,7 @@ printHandler :: (Maybe (TChan String)) -> (Maybe GetPiece) -> PacketHandler
 printHandler maybeChan getPc
   = conduitParser (headerParser <|> packageParser)
     =$= DCL.mapM (\(_, pack) -> do
-      let prnt p = liftIO $ debugM Socks5Proxy.logger $ "received BT packa ge " P.++ p
+      let prnt p = liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
       case pack of 
         Right piece@(Piece num sz payload) -> do
           
@@ -367,9 +367,11 @@ printHandler maybeChan getPc
             -- a foo modification to see if it screws up things
           let trans = if'(cmd /= Nothing) (return. applyTamper)  return
          -- when (cmd /= Nothing) $ liftIO $ debugM Socks5Proxy.logger $ show piece
-
-          let fix = if' ((not (isNothing getPc)) && DB.isPrefixOf (toStrict tamperedPrefix) payload)
-                        (\ bs -> toStrict $ (fromJust getPc)  num (fromIntegral sz) (fromIntegral $ DB.length payload)) (P.id)
+          let foundTampered = (not (isNothing getPc)) && DB.isPrefixOf (toStrict tamperedPrefix) payload
+          when foundTampered $ liftIO $ debugM Socks5Proxy.logger "##############found tampered piece###############"
+          let fix = if' foundTampered
+                        (\ bs -> toStrict $ (fromJust getPc)  num (fromIntegral sz) (fromIntegral $ DB.length payload))
+                        P.id
           prnt ("piece")
           newPayload <- (trans payload)
           (return . serializePackage . (Piece num sz)) $ fix newPayload
@@ -420,7 +422,10 @@ runRevTamperingProxy = withSocketsDo $ do
       outputPort = PortNum $ toggleEndianW16 6891 
   liftIO $ debugM Socks5Proxy.logger
     $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
-  let initF = (\s1 s2 -> return (PacketHandlers (printHandler (Just cmdChan) Nothing) $ printHandler Nothing Nothing))
+  let initF = (\s1 s2 ->  do
+          liftIO $  debugM Socks5Proxy.logger  $ "local address is " ++ (show s1)
+          liftIO $  debugM Socks5Proxy.logger  $ "remote server address is " ++ (show s2)
+          return (PacketHandlers (printHandler (Just cmdChan) Nothing) $ printHandler Nothing Nothing))
   runServer (Config inputPort initF
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
                   outputPort $ readIPv4 "127.0.0.1"))
