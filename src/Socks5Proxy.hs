@@ -49,6 +49,9 @@ import System.Log.Handler.Simple
 import Data.List.Split as DLS
 import GHC.Int
 import Data.Maybe
+import Data.Time
+import System.Locale
+import Data.Time.Clock.POSIX
 
 import Data.Serialize as DS
 import BittorrentParser as BP
@@ -329,15 +332,16 @@ tamperOut bs = do
 
 tamperInc = tamperOut
 
-
 type GetPiece = Int ->  GHC.Int.Int64 -> GHC.Int.Int64-> BSL.ByteString
 
 tamperingInit :: Maybe (TChan String) -> (Maybe GetPiece) -> InitHook
 tamperingInit msgChan getPiece s1 s2 = do
   liftIO $  debugM Socks5Proxy.logger  $ "local address is " ++ (show s1)
   liftIO $  debugM Socks5Proxy.logger  $ "remote server address is " ++ (show s2)
-  return $ if' (show s2 == "151.230.134.132:6891")
-           (PacketHandlers (printHandler msgChan getPiece) $ printHandler Nothing Nothing)
+  epoch_int <- epochTime
+  liftIO $ debugM Socks5Proxy.logger $ "connection start is time " ++ (show epoch_int)
+  return $ if' (show s2 == "129.31.241.152:6891")
+           (PacketHandlers (printHandler msgChan getPiece "incoming") $ printHandler Nothing Nothing "outgoing")
            idPacketHandlers
 
 
@@ -352,24 +356,30 @@ saveToHandle handle bs = do
 tamperedPrefix = "TAMPERED"
 applyTamper bs = DB.concat [tamperedPrefix, DB.drop (DB.length tamperedPrefix) bs]
 
-printHandler :: (Maybe (TChan String)) -> (Maybe GetPiece) -> PacketHandler
-printHandler maybeChan getPc
+printHandler :: (Maybe (TChan String)) -> (Maybe GetPiece) -> String -> PacketHandler
+printHandler maybeChan getPc channel 
   = conduitParser (headerParser <|> packageParser)
     =$= DCL.mapM (\(_, pack) -> do
-      let prnt p = liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
+      let prnt p = return p --liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
       case pack of 
         Right piece@(Piece num sz payload) -> do
           
+          {-
           cmd <- if' (maybeChan /= Nothing)
             (liftIO $ atomically $ tryReadTChan $ fromJust maybeChan)
             (return Nothing)
+
+            -}
             --tryReadTChan
             -- a foo modification to see if it screws up things
-          let trans = if'(cmd /= Nothing) (return. applyTamper)  return
+          let toTamper = False--cmd /= Nothing
+          let trans = if'(toTamper) (return. applyTamper)  return
          -- when (cmd /= Nothing) $ liftIO $ debugM Socks5Proxy.logger $ show piece
           let foundTampered = (not (isNothing getPc)) && DB.isPrefixOf (toStrict tamperedPrefix) payload
-          when foundTampered $ liftIO $ debugM Socks5Proxy.logger "##############found tampered piece###############"
-          let fix = if' foundTampered
+          -- when foundTampered $ liftIO $ debugM Socks5Proxy.logger "##############found tampered piece###############"
+          epoch_int <- epochTime
+          liftIO $ debugM Socks5Proxy.logger $ channel ++ (show $ epoch_int)
+          let fix = if' (foundTampered && (not $ isNothing getPc))
                         (\ bs -> toStrict $ (fromJust getPc)  num (fromIntegral sz) (fromIntegral $ DB.length payload))
                         P.id
           prnt ("piece")
@@ -384,9 +394,10 @@ printHandler maybeChan getPc
           return $ prefixLen bs 
         )
 
+epochTime = liftIO $ getPOSIXTime -- liftIO $ ((read <$> formatTime defaultTimeLocale "%s" <$> getCurrentTime) :: IO Int)
 
 runTamperingSocks = do
-  getPiece <- pieceLoader "/home/dan/test/smallFile.dan.torrent" "/home/dan/test/smallFile.dan"
+  getPiece <- pieceLoader "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan"
   let getPieceBlock = toGetPieceBlock getPiece
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
   runServer (Config  (PortNumber 1080) (tamperingInit Nothing $ Just getPieceBlock) doSocks4Handshake)
@@ -425,7 +436,7 @@ runRevTamperingProxy = withSocketsDo $ do
   let initF = (\s1 s2 ->  do
           liftIO $  debugM Socks5Proxy.logger  $ "local address is " ++ (show s1)
           liftIO $  debugM Socks5Proxy.logger  $ "remote server address is " ++ (show s2)
-          return (PacketHandlers (printHandler (Just cmdChan) Nothing) $ printHandler Nothing Nothing))
+          return (PacketHandlers (printHandler (Just cmdChan) Nothing "outgoing") $ printHandler Nothing Nothing "incoming"))
   runServer (Config inputPort initF
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
                   outputPort $ readIPv4 "127.0.0.1"))

@@ -49,6 +49,7 @@ import Utils
 
 import TorrentClient
 import REncode
+import System.FilePath.Posix
 
 
 
@@ -83,9 +84,10 @@ data DelugeCmd = DelugeCmd {cmdReq :: Integer -> REncode, cmdResp :: REncode -> 
 
 addLink delugeConn link = undefined
 
-addFile delugeConn fileName fileContent
+addFile delugeConn filePath
   = do
-    resp <- (sendMsg delugeConn $ addTorrentFileCmd fileName $ Base64.encode fileContent)
+    fileContent <- liftIO $ DB.readFile filePath
+    resp <- (sendMsg delugeConn $ addTorrentFileCmd (takeFileName filePath) $ Base64.encode fileContent)
     liftIO $ P.putStrLn $ show resp
     return "todo"
 
@@ -141,8 +143,8 @@ testDriveDelugeConn = do
   let path = "/home/dan/torrentDirs/others/"
   tFile <- liftIO $ DB.readFile (path P.++ fileName)
   liftIO $ P.putStrLn $ show $ DB.length tFile
-  resp <- addTorrentFile dc fileName tFile
-  liftIO $ P.putStrLn $ show resp
+--  resp <- addTorrentFile dc fileName tFile
+  --liftIO $ P.putStrLn $ show resp
   listAndPrint dc
   return ()
 

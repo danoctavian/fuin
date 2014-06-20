@@ -118,7 +118,8 @@ makeFakeTorrentClientConn pingChan = return $ TorrentClientConn {
                             listTorrents = return [],
                             pauseTorrent = (\h -> return () ),
                             setProxySettings = (\sets -> (liftIO $ debugM FakeClient.logger $ show sets) >>  return ()),
-                            connectPeer = (\hash ip port -> (liftIO $ debugM FakeClient.logger $ show hash) >>  return ())
+                            connectPeer = (\hash ip port -> (liftIO $ debugM FakeClient.logger $ show hash) >>  return ()),
+                            addTorrentFile = (\path -> return "")
                         }
 
 runFuinClient = do

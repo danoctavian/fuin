@@ -37,7 +37,7 @@ type InitTorrentClientConn = (MonadTorrentClient m) => m TorrentClientConn
 
 data TorrentClientConn =  TorrentClientConn {
                             addMagnetLink :: (MonadTorrentClient m) => String -> m (),
-                            addTorrentFile :: (MonadTorrentClient m) => String -> DB.ByteString -> m TorrentHash,
+                            addTorrentFile :: (MonadTorrentClient m) => FilePath -> m TorrentHash,
                             listTorrents :: (MonadTorrentClient m) => m [Torrent],
                             pauseTorrent :: (MonadTorrentClient m) => TorrentHash -> m (),
                             setProxySettings :: (MonadTorrentClient m) => [ProxySetting] -> m (),
