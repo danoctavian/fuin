@@ -31,6 +31,7 @@ import TorrentClient
 import PackageStream
 
 import Encryption
+import TorrentFileParser
 
 
 data Transporter = Transporter {
@@ -38,17 +39,23 @@ data Transporter = Transporter {
                 }
 -- pipes for sending message to the server
 -- and receiving
+type MagnetLink = String
 
 
 data Ping = Ping
   deriving (Eq)
 type ControlChan = TChan Ping
 
-type AddressDict = Map SockAddr (ControlChan, IncomingPipe, OutgoingPipe)
+
+-- contains paths to the metainfo file and to the contents of the file
+
+data SocksConnPipes = SocksConnPipes ControlChan IncomingPipe OutgoingPipe TorrentFileData
+
+type AddressDict = Map SockAddr SocksConnPipes
 -- server public key; support file; IP 
 data ServerInfo = ServerInfo {
                     clientEncyption :: ClientEncryption,
-                    serverTorrentFile :: TorrentFile,
+                    serverTorrentFile :: (Either MagnetLink FilePath, TorrentFileData),
                     serverSockAddr :: SockAddr}
 
 
@@ -57,7 +64,7 @@ type MonadFuinClient m = (MonadIO m, MonadBaseControl IO m)
  
 -- constants
 logger = "fuin.client"  
-btConnStartTimeout = 10 * 15 ^ 6 -- microseconds
+btConnStartTimeout = 15 * 10 ^ 6 -- microseconds
 
 init :: (MonadFuinClient m, MonadError String m) => PortID -> InitTorrentClientConn -> m (Transporter)
 init port makeTorrentConn = do
@@ -90,10 +97,14 @@ makeConnection torrentClient addressDict serverInfo = do
   inOutgoing <- liftIO $ atomically newTChan
   control <- liftIO $ atomically newTChan
   liftIO $ atomically $  modifyTVar addressDict
-                      (insert (serverSockAddr serverInfo) (control, incomingPipe, (inOutgoing, outOutgoing)))
+                      (insert (serverSockAddr serverInfo)
+                              ( SocksConnPipes control incomingPipe (inOutgoing, outOutgoing)
+                                               $ P.snd $ serverTorrentFile serverInfo))
 
   -- let the games begin 
-  addMagnetLink torrentClient (serverTorrentFile serverInfo)
+  case P.fst $ serverTorrentFile serverInfo of
+    Left magnetLink -> addMagnetLink torrentClient magnetLink
+    Right filePath -> addTorrentFile torrentClient filePath
   ping <- liftIO $ timeout btConnStartTimeout (liftIO $ atomically $ readTChan control)
   when (ping == Nothing) $ throwError "bittorrent connection start timeout"
 
@@ -125,10 +136,11 @@ clientSocks5Init addresses clientSock serverSock = do
     Nothing -> do
       liftIO $ debugM Client.logger $ "new socks5 connection is not a fuin connection"
       return $ idPacketHandlers
-    Just (control, inChan, outgoingPipe)
+    Just (SocksConnPipes control inChan outgoingPipe (torrentFilePath, filePath))
       -> do
+        loader <- liftIO $  pieceLoader torrentFilePath filePath
         liftIO $ atomically $ writeTChan control Ping -- tell the owner of init that it has run
         return $ PacketHandlers
-          (pieceHandler $ collectPacket inChan)
-          (pieceHandler $ transformPacket outgoingPipe)
+          (pieceHandler $  pieceFix (toGetPieceBlock loader) (collectPacket inChan) )
+          (pieceHandler $ (\i off -> transformPacket outgoingPipe))
 

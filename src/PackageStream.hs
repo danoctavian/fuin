@@ -18,7 +18,7 @@ import Control.Monad
 import Prelude as P
 import Data.ByteString as DB
 import Data.ByteString.Char8 as BSC
---import Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Lazy as DBL
 import Data.Conduit as DC
 import Data.Conduit as DCL
 import "conduit-extra" Data.Conduit.Binary as DCB
@@ -52,6 +52,8 @@ import System.Log.Handler.Simple
 import BittorrentParser as BP
 import Socks5Proxy
 import Encryption
+import Data.Int
+--import TorrentFileParser
 
 
 logger = "fuin.packageStream"
@@ -139,7 +141,7 @@ streamIncoming appMessages pipe decryption = do
 
 incomingPackageSource pipe decryption
   = (chanSource pipe) $= CL.map (decrypt decryption) $= CL.filter (/= Nothing) $= CL.map fromJust
-        $= CL.mapM (\m -> (liftIO $ debugM PackageStream.logger $ "message incoming " ++ show m) >> return m)
+        $= CL.mapM (\m -> (liftIO $ debugM PackageStream.logger $ "piece payload incoming of size " ++ (show $ DB.length m) ) >> return m)
         $= (conduitParser (DA.skipWhile (pad == ) >> parseMessage)) $= (CL.map snd) $=
         (CL.filter isRight) $= (CL.map fromRight)
 
@@ -235,17 +237,24 @@ isPiece _ = False
 
 -- unwrap and wrap back a bittorrent piece after applying a transform
 
-pieceHandler :: PayloadTransformer -> PacketHandler
+pieceHandler :: (PieceNum -> Int -> PayloadTransformer) -> PacketHandler
 pieceHandler trans
   = conduitParser (headerParser <|> packageParser)
     =$= CL.mapM (\(_, pack) -> do
-      liftIO $ debugM PackageStream.logger $ "received BT package " ++ (show pack)
+--      liftIO $ debugM PackageStream.logger $ "received BT package " ++ (show pack)
       case pack of 
-        Right (Piece num sz payload) ->
-          (trans payload) >>= (return . serializePackage . (Piece num sz))
+        Right p@(Piece pieceIndex offset payload) ->
+          (trans pieceIndex offset payload) >>= (return . serializePackage . (Piece pieceIndex offset))
         Right other -> return $ serializePackage other
         Left bs -> return $ prefixLen bs 
         )
+
+pieceFix :: (Int -> Int -> Int -> DBL.ByteString) ->
+            PayloadTransformer -> Int -> Int -> PayloadTransformer
+pieceFix getBlock trans num offset bs = 
+   (trans bs) >>
+   (return $ toStrict $ getBlock (fromIntegral num) (fromIntegral offset) (fromIntegral $ DB.length bs))
+
 {-
 pieceHandler trans bs = do
   case (getBTPacket bs) of
@@ -381,7 +390,7 @@ runAutoTestParse = do
     bs <- DB.readFile "delugeToUTorrentSample/outgoingTraffic"
     let testSample = DB.take 314 bs
     processed <- ((CL.sourceList [testSample]) $=
-                  (pieceHandler return) $$
+                  (pieceHandler (\i off -> return))  $$
                   --CL.map id $$
                   (CL.fold (\b1 b2 -> DB.concat [b1, b2]) ("")))
     P.putStrLn $ show $ DB.length processed

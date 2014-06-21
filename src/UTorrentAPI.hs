@@ -106,7 +106,7 @@ list conn = fmap ((P.map (\(Array a) ->
               $ requestWithParams conn [("list", "1")] return
 
 pause conn hash = requestWithParams conn [(hashParam, hash), (actionParam, "pause")] return >> return ()
-addUrl conn url = requestWithParams conn [("s", url), (actionParam, "add-url")] return  >> return ()
+addUrl conn url = requestWithParams conn [("s", url), (actionParam, "add-url")] return  >> return url
 addPeer conn hash host port = undefined -- the utorrent server currently doesn't support this
 addFile conn filePath = requestWithParams conn [(actionParam, "add-file")]
                         (formDataBody[partFile "torrent_file" filePath])

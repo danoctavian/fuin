@@ -36,7 +36,7 @@ type MakeTorrentClientConn = HostName -> PortNumber -> Credentials -> InitTorren
 type InitTorrentClientConn = (MonadTorrentClient m) => m TorrentClientConn
 
 data TorrentClientConn =  TorrentClientConn {
-                            addMagnetLink :: (MonadTorrentClient m) => String -> m (),
+                            addMagnetLink :: (MonadTorrentClient m) => String -> m TorrentHash,
                             addTorrentFile :: (MonadTorrentClient m) => FilePath -> m TorrentHash,
                             listTorrents :: (MonadTorrentClient m) => m [Torrent],
                             pauseTorrent :: (MonadTorrentClient m) => TorrentHash -> m (),
@@ -44,5 +44,5 @@ data TorrentClientConn =  TorrentClientConn {
                             connectPeer :: (MonadTorrentClient m) => TorrentHash -> HostName -> PortNumber -> m ()
                         }
 
-
+type TorrentFileData = (FilePath, FilePath)
 

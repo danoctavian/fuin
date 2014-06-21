@@ -65,7 +65,7 @@ data Message = KeepAlive
              | Piece PieceNum Int DB.ByteString
              | Cancel PieceNum Block
              | Port Integer
-             | Handshake  ([Capabilities], ByteString) ByteString -- hacky; TODO: refactor later
+             | Handshake  ([Capabilities], ByteString, ByteString) ByteString -- hacky; TODO: refactor later
   deriving (Eq, Show)
 
 
@@ -158,7 +158,7 @@ headerParser = do
     let magicLen = 20
     ihR <- DA.take magicLen
     pid <- DA.take magicLen
-    return $ Right $ Handshake (decodeCapabilities caps, pid) $
+    return $ Right $ Handshake (decodeCapabilities caps, ihR, pid) $
             DB.concat $ [DB.pack [protoLen], bsProtoHead, encode caps, ihR, pid]
 
 

@@ -33,6 +33,7 @@ import PackageStream
 import Socks5Proxy
 import Data.Conduit
 import Data.Conduit.List as DCL
+import TorrentFileParser
 
 import Encryption
 
@@ -44,11 +45,13 @@ type HandleConnection = (MonadFuinServer m) => (Send, Receive) -> m ()
 
 -- TODO: figure out port/port-range for which to reverse proxy
 -- need to know how bittorrent finds ot where to connect to a certain peer (DHT?)
-run :: (MonadFuinServer m) => HandleConnection -> PortID -> PortID -> BootstrapServerEncryption -> m ()
-run handleConnection publicPort internalPort bootstrapEnc = do
+run :: (MonadFuinServer m) => HandleConnection -> TorrentFileData
+                              -> PortID -> PortID ->
+                              BootstrapServerEncryption -> m ()
+run handleConnection torrentFile publicPort internalPort bootstrapEnc = do
   liftIO $ debugM Server.logger "running fuin server..."
   runReverseProxy publicPort internalPort $
-                    serverReverseProxyInit handleConnection bootstrapEnc -- magic ports; standard bittorrent port + magic bittorrent client port
+                    serverReverseProxyInit handleConnection bootstrapEnc torrentFile
   
 
 runReverseProxy :: (MonadIO m) => PortID  -> PortID -> InitHook -> m ()
@@ -58,8 +61,8 @@ runReverseProxy listenPort targetPort initHook
                   (PortNum $ toggleEndianW16 ((\(PortNumber n) -> fromIntegral n :: Word16) targetPort))
                    $ readIPv4 "127.0.0.1"))
 
-serverReverseProxyInit :: HandleConnection -> BootstrapServerEncryption -> InitHook
-serverReverseProxyInit handleConnection bootstrapEnc clientSock serverSock = do
+serverReverseProxyInit :: HandleConnection -> BootstrapServerEncryption -> TorrentFileData -> InitHook
+serverReverseProxyInit handleConnection bootstrapEnc (torrentFilePath, filePath) clientSock serverSock = do
   liftIO $ debugM Server.logger "initializing reverse proxy connection..."
   [incomingPipe, outgoingOut] <- replicateM 2 (liftIO $ atomically newTChan)
   outgoingIn <- (liftIO $ atomically newTChan)
@@ -70,10 +73,11 @@ serverReverseProxyInit handleConnection bootstrapEnc clientSock serverSock = do
   -- while just forwarding the sent packages...
   liftIO $ forkIO $ noOpStreamOutgoing outgoingPipe
 
+  loader <- liftIO $ pieceLoader torrentFilePath filePath
   return $ PacketHandlers {
    -- incoming packets are packets from the Bittorrent reverse proxied server
-    incoming = (pieceHandler $ transformPacket outgoingPipe),
-    outgoing = (pieceHandler $ collectPacket incomingPipe)
+    incoming = (pieceHandler $ \i off -> transformPacket outgoingPipe),
+    outgoing = (pieceHandler $ (pieceFix (toGetPieceBlock loader) $ collectPacket incomingPipe))
     -- outgoing packets are packets send by the connection initiator, which is the client
   }
 

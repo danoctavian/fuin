@@ -123,6 +123,7 @@ serializeTorrent torrent
                                                                                                     ,("path", BList (P.map BString $ filePath file))]
                                                                           )]
 
+
 -- input is assumed correct
 getPiece :: Int -> DBL.ByteString -> Int -> DBL.ByteString
 getPiece pieceSize bs index
@@ -154,7 +155,7 @@ makeHalfFile torrentFile original new half = do
   DB.writeFile new (selectHalf torrent originalData half)
 
 
-pieceBlock piece begin len =DBL.take len $ DBL.drop begin $ piece
+pieceBlock piece begin len =DBL.take (fromIntegral len) $ DBL.drop (fromIntegral begin) $ piece
 
 toGetPieceBlock getPiece index = pieceBlock (getPiece index) 
 
@@ -174,4 +175,4 @@ testLoadPieces = do
 makeHalves = do
   --makeHalfFile "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan" "/home/dan/test/fstHalfbigFile.dan"  FstHalf
   makeHalfFile "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan" "/home/dan/test/sndHalfbigFile.dan"  SndHalf
-  return ()`
+  return ()

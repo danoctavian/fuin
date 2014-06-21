@@ -14,14 +14,15 @@ import ExtendedORPort
 import DelugeAPI
 import REncode
 import TorrentFileParser
+import DemoSetup
 
 main = do
   P.putStrLn "main program running"
   args <- getArgs 
   case (read (args !! 0) :: Int) of
-    0 -> runFuinServer
-    1 -> runFuinClient
-    2 -> runRevTamperingProxy
+    0-> runRevTamperingProxy
+    1 -> runDemoClient
+    2 -> runDemoServer
     --3 -> runRevTamperingProxy
 {-
 
