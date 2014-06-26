@@ -340,9 +340,9 @@ tamperingInit msgChan getPiece s1 s2 = do
   liftIO $  debugM Socks5Proxy.logger  $ "remote server address is " ++ (show s2)
   epoch_int <- epochTime
   liftIO $ debugM Socks5Proxy.logger $ "connection start is time " ++ (show epoch_int)
-  return $ if' (show s2 == "129.31.241.152:6891")
+  return $ if' (show s2 == "129.31.191.89:6891")
            (PacketHandlers (printHandler msgChan getPiece "incoming") $ printHandler Nothing Nothing "outgoing")
-           idPacketHandlers
+           (PacketHandlers (justPrint "INCOMING!!!") (justPrint "OUTGOING!!!"))
 
 
 saveToHandle handle bs = do
@@ -360,7 +360,7 @@ printHandler :: (Maybe (TChan String)) -> (Maybe GetPiece) -> String -> PacketHa
 printHandler maybeChan getPc channel 
   = conduitParser (headerParser <|> packageParser)
     =$= DCL.mapM (\(_, pack) -> do
-      let prnt p = return p --liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
+      let prnt p = return p -- liftIO $ debugM Socks5Proxy.logger $ "received BT package " P.++ p
       case pack of 
         Right piece@(Piece num sz payload) -> do
           
@@ -378,6 +378,7 @@ printHandler maybeChan getPc channel
           let foundTampered = (not (isNothing getPc)) && DB.isPrefixOf (toStrict tamperedPrefix) payload
           -- when foundTampered $ liftIO $ debugM Socks5Proxy.logger "##############found tampered piece###############"
           epoch_int <- epochTime
+          liftIO $ P.putStrLn (show epoch_int)
           liftIO $ debugM Socks5Proxy.logger $ channel ++ (show $ epoch_int)
           let fix = if' (foundTampered && (not $ isNothing getPc))
                         (\ bs -> toStrict $ (fromJust getPc)  num (fromIntegral sz) (fromIntegral $ DB.length payload))
@@ -397,7 +398,7 @@ printHandler maybeChan getPc channel
 epochTime = liftIO $ getPOSIXTime -- liftIO $ ((read <$> formatTime defaultTimeLocale "%s" <$> getCurrentTime) :: IO Int)
 
 runTamperingSocks = do
-  getPiece <- pieceLoader "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan"
+  getPiece <- pieceLoader "/homes/dco210/demoFiles/bigFile.dan.torrent" "/homes/dco210/demoFiles/bigFile.dan"
   let getPieceBlock = toGetPieceBlock getPiece
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
   runServer (Config  (PortNumber 1080) (tamperingInit Nothing $ Just getPieceBlock) doSocks4Handshake)

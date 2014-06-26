@@ -64,7 +64,7 @@ type MonadFuinClient m = (MonadIO m, MonadBaseControl IO m)
  
 -- constants
 logger = "fuin.client"  
-btConnStartTimeout = 15 * 10 ^ 6 -- microseconds
+btConnStartTimeout = 60 * 10 ^ 6 -- microseconds
 
 init :: (MonadFuinClient m, MonadError String m) => PortID -> InitTorrentClientConn -> m (Transporter)
 init port makeTorrentConn = do
@@ -72,10 +72,10 @@ init port makeTorrentConn = do
 
   addressDict <- liftIO $ newTVarIO DM.empty
   liftIO $ forkIO $ Socks5Proxy.runServer $ Config {listenPort = port, initHook = clientSocks5Init addressDict,
-                                    getConn = doSocks5Handshake}
+                                    getConn = doSocks4Handshake}
 
   torrentClient <- makeTorrentConn
-  setProxySettings torrentClient [ProxySetType Socks4, ProxyIP localhost, ProxyPort $ port, ProxyP2P True]
+  --setProxySettings torrentClient [ProxySetType Socks4, ProxyIP localhost, ProxyPort $ port, ProxyP2P True]
   
   {-
   <startUTorrentServer>

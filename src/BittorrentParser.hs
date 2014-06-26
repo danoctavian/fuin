@@ -162,6 +162,8 @@ headerParser = do
             DB.concat $ [DB.pack [protoLen], bsProtoHead, encode caps, ihR, pid]
 
 
+
+
 -- TODO: there's more
 data Capabilities = Fast | DHT | ExtensionProtocol | ExtensionNegotiationProtocol
     deriving (Show, Eq)
@@ -187,6 +189,7 @@ packageParser = do
 
 runTestParse = do
     bs <- DB.readFile "delugeToUTorrentSample/outgoingTraffic"
+    P.putStrLn $ show $ DB.take 100 bs
     P.putStrLn $ show $ DB.take (72 + 218 + 4 + 1 + 4 + 3 + 4 + 3 + 4 + 1) bs
     P.putStrLn $ show $ (\(DAC.Done _ [Right (Handshake _ bs)]) -> DA.parse headerParser bs) $
                         -- (P.length $ P.filter isP r,  P.length r) ) $ 

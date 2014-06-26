@@ -173,6 +173,6 @@ testLoadPieces = do
   --P.putStrLn $ show $ DBL.length $ getPieceBroken 17
 
 makeHalves = do
-  --makeHalfFile "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan" "/home/dan/test/fstHalfbigFile.dan"  FstHalf
-  makeHalfFile "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan" "/home/dan/test/sndHalfbigFile.dan"  SndHalf
+  makeHalfFile "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan" "/home/dan/test/fstHalfbigFile.dan"  FstHalf
+  --makeHalfFile "/home/dan/test/bigFile.dan.torrent" "/home/dan/test/bigFile.dan" "/home/dan/test/sndHalfbigFile.dan"  SndHalf
   return ()

@@ -20,9 +20,10 @@ main = do
   P.putStrLn "main program running"
   args <- getArgs 
   case (read (args !! 0) :: Int) of
-    0-> runRevTamperingProxy
-    1 -> runDemoClient
-    2 -> runDemoServer
+    0 -> runRevTamperingProxy
+    1 -> runTamperingSocks
+    2 -> runDemoClient
+    3 -> runDemoServer
     --3 -> runRevTamperingProxy
 {-
 

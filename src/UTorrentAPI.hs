@@ -62,6 +62,7 @@ data UTorrentConn = UTorrentConn { baseURL :: URL, user :: String, pass :: Strin
 
 makeUTorrentConn :: MakeTorrentClientConn
 makeUTorrentConn hostName portNum (user, pass) = do
+  liftIO $ debugM UTorrentAPI.logger $ "attempting connection to " ++ (show $ utServerURL  hostName portNum)
   conn <- uTorentConn (utServerURL hostName portNum) user pass
   return $ TorrentClientConn {addMagnetLink = addUrl conn, listTorrents = list conn,
                               pauseTorrent = pause conn, setProxySettings = setSettings conn,
@@ -138,11 +139,11 @@ TODO: remove when done
 
 -}
 runTorrentClientScript = do
-  conn <- uTorentConn "http://localhost:8080" "admin" ""
+  conn <- uTorentConn "http://127.0.0.1:8080" "admin" ""
   liftIO $ debugM logger "made first connection"
   torrentFile <-return "/home/dan/test/bigFile.dan.torrent"
-  r2 <- addFile conn torrentFile --addUrl conn archMagnet
-  liftIO $ debugM logger $ "addUrl RESPONSE IS " ++  (show r2)
+--  r2 <- addFile conn torrentFile --addUrl conn archMagnet
+--  liftIO $ debugM logger $ "addUrl RESPONSE IS " ++  (show r2)
   r <- list conn
   liftIO $ debugM logger $ "list is  " ++  (show r)
 --  liftIO $ debugM logger $ show r

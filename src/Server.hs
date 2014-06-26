@@ -50,7 +50,7 @@ run :: (MonadFuinServer m) => HandleConnection -> TorrentFileData
                               BootstrapServerEncryption -> m ()
 run handleConnection torrentFile publicPort internalPort bootstrapEnc = do
   liftIO $ debugM Server.logger "running fuin server..."
-  runReverseProxy publicPort internalPort $
+  runReverseProxy internalPort publicPort $
                     serverReverseProxyInit handleConnection bootstrapEnc torrentFile
   
 
@@ -84,7 +84,7 @@ serverReverseProxyInit handleConnection bootstrapEnc (torrentFilePath, filePath)
 
 checkForClientConn incomingPipe (inputOutgoing, outputOutgoing) bootstrapEnc makeConnection = do
   liftIO $ debugM Server.logger "reading greeting message..."
-  greeting <- liftIO $ timeout (10 ^ 7) $ (incomingPackageSource incomingPipe
+  greeting <- liftIO $ timeout (10 ^ 8) $ (incomingPackageSource incomingPipe
                                       (bootstrapServerDecrypt bootstrapEnc)) $$ (DCL.take 1)
   liftIO $ debugM Server.logger "got something for a greeting"
   case greeting of
@@ -92,8 +92,8 @@ checkForClientConn incomingPipe (inputOutgoing, outputOutgoing) bootstrapEnc mak
       liftIO $ debugM Server.logger "got a good result lads!" 
       liftIO $ atomically $ writeTChan inputOutgoing Kill -- kill the noOp thread
       makeConnection $ makeServerEncryption bootstrapEnc bs
-    _ ->  liftIO $ do
-        debugM Server.logger "it's not a client connection. run a normal proxy."
+    other ->  liftIO $ do
+        debugM Server.logger $ "it's not a client connection. run a normal proxy. Received" ++ (show other)
         -- TODO: clean this up... it's a waste of computation
         forever (liftIO $ atomically $ readTChan incomingPipe) -- just emtpying the chan...
   return ()

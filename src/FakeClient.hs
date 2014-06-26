@@ -169,7 +169,7 @@ runFuinServer = do
 
 
 setupLoggers
-  = forM [FakeClient.logger, Socks5Proxy.logger, PackageStream.logger, Client.logger, Server.logger] 
+  = forM [FakeClient.logger, Socks5Proxy.logger, PackageStream.logger, Client.logger, Server.logger, UTorrentAPI.logger] 
       (\lg -> liftIO $ updateGlobalLogger lg (setLevel DEBUG))
 
 
