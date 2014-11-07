@@ -126,13 +126,13 @@ sendMsg (DelugeConn conn stdGen) msg = do
   liftIO $ connectionPut conn $ serializeMsg $ cmdReq msg randId 
   response <- liftIO $ connectionGet conn 2048
   return . (fmap $ (cmdResp msg) . unwrapResp) . (parseOnly rEncodeParser) .
-    toStrict . CCZ.decompress . (DBLC.fromChunks . (:[])) $ response
+    DBLC.toStrict . CCZ.decompress . (DBLC.fromChunks . (:[])) $ response
 
 unwrapResp (RList [i, msgId, resp]) = resp
 
 msg method params kvParams msgId = RList [RInt msgId, RString method, RList params, RDict kvParams]
 -- encodes and compresses
-serializeMsg m =  toStrict $ CCZ.compress $ DBLC.fromChunks $ (:[]) $ DS.encode $ RList [m]
+serializeMsg m =  DBLC.toStrict $ CCZ.compress $ DBLC.fromChunks $ (:[]) $ DS.encode $ RList [m]
 
 
 testDriveDelugeConn :: (MonadTorrentClient m) => m ()
@@ -176,7 +176,7 @@ tryTls = do
 
 readMsg con = do
   line <- connectionGet  con 1024
-  P.putStrLn . show . (parseOnly rEncodeParser) . toStrict . CCZ.decompress . (DBLC.fromChunks . (:[])) $ line
+  P.putStrLn . show . (parseOnly rEncodeParser) . DBLC.toStrict . CCZ.decompress . (DBLC.fromChunks . (:[])) $ line
 
 
 {-

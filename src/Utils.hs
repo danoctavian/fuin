@@ -20,8 +20,6 @@ strToWord8s = P.map c2w
 
 if' x a b = if x then a else b
 fromRight (Right x) = x
-isRight (Right _) = True
-isRight _ = False
 
 select :: a -> [(Bool, a)] -> a
 select def = maybe def snd . DL.find fst
