@@ -59,7 +59,7 @@ runReverseProxy listenPort targetPort initHook
   = runServer (Config  listenPort initHook
             (\s -> return $ Socks5Proxy.Connection CONNECT IPV4 $ SockAddrInet
                   (PortNum $ toggleEndianW16 ((\(PortNumber n) -> fromIntegral n :: Word16) targetPort))
-                   $ readIPv4 "127.0.0.1"))
+                   $ readIPv4 "127.0.0.1") id)
 
 serverReverseProxyInit :: HandleConnection -> BootstrapServerEncryption -> TorrentFileData -> InitHook
 serverReverseProxyInit handleConnection bootstrapEnc (torrentFilePath, filePath) clientSock serverSock = do

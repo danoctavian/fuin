@@ -16,9 +16,9 @@ Executable torrentcamo
                filepath -any, transformers -any, attoparsec ==0.11.2.1.*,
                conduit ==1.1.0.*, strict ==0.3.2.*, splice ==0.6.1.1.*,
                cereal ==0.4.0.1.*, binary -any, stm ==2.4.2.*,
-               conduit-extra ==1.1.0.*, vector ==0.10.9.1.*, text ==1.1.0.1.*,
+               conduit-extra ==1.1.*, vector ==0.10.9.1.*, text ==1.1.0.1.*,
                unordered-containers ==0.2.3.3.*, aeson ==0.7.0.2.*,
-               tagsoup ==0.13.1.*, url ==2.1.3.*, http-conduit ==2.1.0.*,
+               tagsoup ==0.13.1.*, url ==2.1.3.*, http-conduit ==2.1.*,
                http-server ==1.0.4.*, hslogger ==1.2.3.*, resourcet ==1.1.1.*,
                attoparsec-binary ==0.2.*, split ==0.2.2.*,
                lifted-base ==0.2.2.1.*, monad-control ==0.3.2.3.*,
@@ -26,7 +26,8 @@ Executable torrentcamo
                primitive ==0.5.2.1.*, mwc-random ==0.13.1.1.*, byteable ==0.1.1.*,
                cipher-aes ==0.2.7.*, exceptions ==0.5.*, socks ==0.5.4.*,
                random -any, crypto-api ==0.13.*, Crypto ==4.2.5.1.*,
-               ghc-prim -any, cereal-conduit ==0.7.2.2.*, connection ==0.2.0.*,
+               ghc-prim -any, cereal-conduit ==0.7.2.2.*, connection ==0.2.*,
                bencode ==0.5.*, zlib -any , data-default ==0.5.3.*, tls ==1.2.8.*
                , base64-bytestring ==1.0.0.1.* , syb ==0.4.1.* , old-locale ==1.0.0.4.*
-               , time ==1.4.* , http-client ==0.3.3.*
+               , time ==1.4.* , http-client ==0.4.2.*
+               , helligator ==0.1.*

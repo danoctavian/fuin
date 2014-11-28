@@ -69,7 +69,7 @@ idPacketHandlers = let idPacketHandler = DCL.map id in PacketHandlers idPacketHa
 -- client sock -> remote server sock -> handlers
 type InitHook = (MonadIO m) => SockAddr -> SockAddr -> m PacketHandlers
 type GetConn = (Data.String.IsString e, MonadIO m, MonadError e m, Functor m) => Socket -> m Connection
-data Config = Config {listenPort :: PortID, initHook :: InitHook, getConn :: GetConn}
+data Config = Config {listenPort :: PortID, initHook :: InitHook, getConn :: GetConn, addrMap :: SockAddr -> SockAddr}
 
 type Method = Char
 data ClientHandshake = CH Char [Method]
@@ -79,7 +79,7 @@ data CMD = CONNECT | BIND | UDPASSOCIATE -- command
   deriving Show
 data ATYP = IPV4 | DOMAINNAME | IPV6 -- address type
   deriving (Show, Eq)
-data Connection = Connection CMD ATYP SockAddr -- cmd, atyp, address, port
+data Connection = Connection {connCmd :: CMD, connAtyp :: ATYP, connSockAddr :: SockAddr} -- cmd, atyp, address, port
   deriving Show
 
 msgSize = 1024 -- magical? may need more
@@ -129,8 +129,19 @@ handleReq config (sock, addr) = do
   debugM Socks5Proxy.logger "done showing"
   Network.Socket.sClose sock
 
-handleConnection conn@(Connection cmd atyp serverSockAddr) (clientSock, clientAddr) config = do
-  debugM Socks5Proxy.logger $ "handling connection" ++ (show conn) 
+
+  {- theres a bug in utorrent when computing the address of an http tracker;
+    probably this: http://stackoverflow.com/questions/12596695/why-does-a-float-variable-stop-incrementing-at-16777216-in-c
+    so the word32 ipv4 address is always that number
+    therefore i need a special case in the proxy because fuck me right?
+  -}
+fixAddr old@(SockAddrInet tport taddr) 
+  | taddr == 16777216 = SockAddrInet tport 16777343 -- magical 127.0.0.1
+  |otherwise = old
+
+handleConnection conn@(Connection cmd atyp unfixedAddr) (clientSock, clientAddr) config = do
+  let serverSockAddr = addrMap config unfixedAddr
+
   {- getting the address can also be done as such:
   let addr = getStrAddress atyp bsAddr
   addrInfos <- getAddrInfo Nothing (Just addr) (Just $ show $ sockAddrPort ) 
@@ -201,12 +212,14 @@ parseSocks4Cmd = do
   versionByte <- anyChar
   cmd <- fmap fromJust $ satisfyWith (toCMD . word8ToChar) maybeToBool
   port <- anyWord16be
-  address <- DAC.take 4 -- only IPV4
+
+  -- this is architecture specific... TODO: figure out endianess properly
+  address <- anyWord32le -- only IPV4
   let terminator = 0
   userid <- DA.takeTill (== terminator)
   word8 terminator
   let atyp = IPV4
-  return (Connection cmd atyp $ fromJust $ toSockAddress atyp address  port)
+  return (Connection cmd atyp $ SockAddrInet (portNumberle port) address)
 
 
 isValidSocks4Cmd :: Connection  -> Bool
@@ -279,12 +292,12 @@ toAddressFamily DOMAINNAME = undefined -- TODO: wut is this
 -- socks5 proxy which doesn't tamper with the packets
 runNoOpSocks = withSocketsDo $ do
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
-  runServer (Config  (PortNumber 1080) printerInit doSocks4Handshake)
+  runServer (Config  (PortNumber 1080) printerInit doSocks4Handshake id)
 noOpInit _ _ = return $ idPacketHandlers
 
 runNoOpSocks4 = withSocketsDo $ do
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
-  runServer (Config  (PortNumber 1080) printerInit doSocks4Handshake)
+  runServer (Config  (PortNumber 1080) printerInit doSocks4Handshake fixAddr)
 
 
 
@@ -310,7 +323,7 @@ printerInit _ _ = return $ PacketHandlers (justPrint "INCOMING!!!") (justPrint "
 runNoProtoProxy = withSocketsDo $ do
   runServer (Config  (PortNumber 1080) printerInit
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
-                  (PortNum $ toggleEndianW16 3000) $ readIPv4 "127.0.0.1"))
+                  (PortNum $ toggleEndianW16 3000) $ readIPv4 "127.0.0.1") id)
 
 
 runRevProxyTest = withSocketsDo $ do
@@ -321,7 +334,7 @@ runRevProxyTest = withSocketsDo $ do
     $ "running reverse proxy from " P.++ (show inputPort) P.++ " to " P.++ (show outputPort)
   runServer (Config inputPort printerInit
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
-                  outputPort $ readIPv4 "127.0.0.1"))
+                  outputPort $ readIPv4 "127.0.0.1") id)
 
 
 
@@ -401,7 +414,7 @@ runTamperingSocks = do
   getPiece <- pieceLoader "/homes/dco210/demoFiles/bigFile.dan.torrent" "/homes/dco210/demoFiles/bigFile.dan"
   let getPieceBlock = toGetPieceBlock getPiece
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
-  runServer (Config  (PortNumber 1080) (tamperingInit Nothing $ Just getPieceBlock) doSocks4Handshake)
+  runServer (Config  (PortNumber 1080) (tamperingInit Nothing $ Just getPieceBlock) doSocks4Handshake id)
 
 runSimpleRevTamperingProxy = do
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
@@ -413,7 +426,7 @@ runSimpleRevTamperingProxy = do
   let initF = printerInit --(\s1 s2 -> return (PacketHandlers (printHandler $ Just cmdChan) $ printHandler Nothing))
   runServer (Config inputPort initF
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
-                  outputPort $ readIPv4 "127.0.0.1"))
+                  outputPort $ readIPv4 "127.0.0.1") id)
 
 runRevTamperingProxy = withSocketsDo $ do
   liftIO $ updateGlobalLogger Socks5Proxy.logger (setLevel DEBUG)
@@ -440,4 +453,4 @@ runRevTamperingProxy = withSocketsDo $ do
           return (PacketHandlers (printHandler (Just cmdChan) Nothing "outgoing") $ printHandler Nothing Nothing "incoming"))
   runServer (Config inputPort initF
             (\s -> return $ Connection CONNECT IPV4 $ SockAddrInet
-                  outputPort $ readIPv4 "127.0.0.1"))
+                  outputPort $ readIPv4 "127.0.0.1") id)
