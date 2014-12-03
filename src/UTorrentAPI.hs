@@ -153,6 +153,8 @@ TODO: remove when done
 runTorrentClientScript = do
   conn <- makeUTorrentConn "127.0.0.1" 8000  ("admin", "")
   liftIO $ debugM logger "made first connection"
+  r3 <- setSettings conn [UPnP False, NATPMP False, RandomizePort False, DHTForNewTorrents False, UTP True, LocalPeerDiscovery False, ProxySetType Socks4, ProxyIP "127.0.0.1", ProxyPort 1080, ProxyP2P True]
+  liftIO $ debugM logger $ show $  r3
   torrentFile <-return "/home/dan/testdata/sample100.torrent"
 --  r2 <- addMagnetLink conn archMagnet
   r2 <- addTorrentFile conn torrentFile 
@@ -160,8 +162,6 @@ runTorrentClientScript = do
   r <- listTorrents conn
   liftIO $ debugM logger $ "list is  " ++  (show r)
 --  liftIO $ debugM logger $ show r
-  r3 <- setSettings conn [UPnP False, NATPMP False, RandomizePort False, DHTForNewTorrents False, UTP False] -- [ProxySetType Socks4, ProxyIP "127.0.0.1", ProxyPort 6969, ProxyP2P True]
-  liftIO $ debugM logger $ show $  r3
   return ()
 
 archMagnet = "magnet:?xt=urn:btih:67f4bcecdca3e046c4dc759c9e5bfb2c48d277b0&dn=archlinux-2014.03.01-dual.iso&tr=udp://tracker.archlinux.org:6969&tr=http://tracker.archlinux.org:6969/announce"

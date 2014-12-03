@@ -310,7 +310,7 @@ TODO; remove once done
 justPrint  flag
   = DCL.mapM $ \bs -> do
   liftIO $ debugM Socks5Proxy.logger flag
-  liftIO $ debugM Socks5Proxy.logger $ show bs
+--  liftIO $ debugM Socks5Proxy.logger $ show bs
   return bs
 
 
