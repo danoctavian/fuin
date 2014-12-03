@@ -12,6 +12,7 @@ import Control.Monad.Error.Class
 import Network
 import Network.Connection
 import Data.ByteString as DB
+import Data.Word
 
 {-
 Defines the interface for interacting with a bittorrent client
@@ -20,7 +21,10 @@ Defines the interface for interacting with a bittorrent client
 
 data ProxyType = None | Socks4 | Socks5 | HTTPS | HTTP deriving (Enum, Show, Eq)
 
-data ProxySetting = ProxySetType ProxyType | ProxyIP String | ProxyP2P Bool | ProxyPort PortID
+data Setting = ProxySetType ProxyType | ProxyIP String | ProxyP2P Bool | ProxyPort Word16
+               | DHTNetwork Bool | UTP Bool | PeerExchange Bool | LocalPeerDiscovery Bool
+               | DHTForNewTorrents Bool | UPnP Bool | NATPMP Bool | RandomizePort Bool
+               | BindPort Word16
   deriving (Show, Eq)
 
 data Torrent = Torrent {torrentID :: String, torrentName :: String}
@@ -32,16 +36,16 @@ type MonadTorrentClient m =  (MonadIO m, MonadError String m, Functor m, MonadBa
 
 -- user, passwd
 type Credentials = (String, String)
-type MakeTorrentClientConn = HostName -> PortNumber -> Credentials -> InitTorrentClientConn
+type MakeTorrentClientConn = HostName -> Word16 -> Credentials -> InitTorrentClientConn
 type InitTorrentClientConn = (MonadTorrentClient m) => m TorrentClientConn
 
 data TorrentClientConn =  TorrentClientConn {
-                            addMagnetLink :: (MonadTorrentClient m) => String -> m TorrentHash,
-                            addTorrentFile :: (MonadTorrentClient m) => FilePath -> m TorrentHash,
-                            listTorrents :: (MonadTorrentClient m) => m [Torrent],
-                            pauseTorrent :: (MonadTorrentClient m) => TorrentHash -> m (),
-                            setProxySettings :: (MonadTorrentClient m) => [ProxySetting] -> m (),
-                            connectPeer :: (MonadTorrentClient m) => TorrentHash -> HostName -> PortNumber -> m ()
+  addMagnetLink :: (MonadTorrentClient m) => String -> m TorrentHash,
+  addTorrentFile :: (MonadTorrentClient m) => FilePath -> m TorrentHash,
+  listTorrents :: (MonadTorrentClient m) => m [Torrent],
+  pauseTorrent :: (MonadTorrentClient m) => TorrentHash -> m (),
+  setSettings :: (MonadTorrentClient m) => [Setting] -> m (),
+  connectPeer :: (MonadTorrentClient m) => TorrentHash -> HostName -> PortNumber -> m ()
                         }
 
 type TorrentFileData = (FilePath, FilePath)

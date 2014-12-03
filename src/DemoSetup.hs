@@ -72,7 +72,7 @@ runDemoClient = do
   liftIO $ debugM DemoSetup.logger "running client.."
   connResult <- runErrorT $ do 
     transporter <- Client.init (PortNumber $ fromIntegral socks5ProxyPort)
-                                $ makeUTorrentConn "localhost" (PortNum $ 8080) ("admin", "")
+                                $ makeUTorrentConn "localhost" 8080 ("admin", "")
     let info = ServerInfo {clientEncyption = makeClientEncryption fakeKey fakeKey fakeKey,
               serverTorrentFile  = (Right $ fst clientSideTorrentFile, clientSideTorrentFile),
               -- no change to the endianess of the port since this is sent over the network

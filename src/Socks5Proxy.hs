@@ -301,7 +301,7 @@ runNoOpSocks4 = withSocketsDo $ do
 
 
 
-
+-- HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 105\r\n\r\nd8:completei1e10:downloadedi2e10:incompletei1e8:intervali1927e12:min intervali963e5:peers12:\DEL\NUL\NUL\SOH\SUB\225\DEL\NUL\NUL\SOH\SUB\235e
 {-
 MANUAL Debugging code
 TODO; remove once done

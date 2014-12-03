@@ -42,6 +42,7 @@ import Network.Socket.Internal
 import TorrentClient
 import Data.Text as DT
 import System.FilePath.Posix
+import Data.Word
 
 -- internal module
 import Utils
@@ -65,7 +66,7 @@ makeUTorrentConn hostName portNum (user, pass) = do
   liftIO $ debugM UTorrentAPI.logger $ "attempting connection to " ++ (show $ utServerURL  hostName portNum)
   conn <- uTorentConn (utServerURL hostName portNum) user pass
   return $ TorrentClientConn {addMagnetLink = addUrl conn, listTorrents = list conn,
-                              pauseTorrent = pause conn, setProxySettings = setSettings conn,
+                              pauseTorrent = pause conn, setSettings = setSett conn,
                               connectPeer = addPeer conn,
                               addTorrentFile = addFile conn}
 
@@ -100,11 +101,12 @@ requestWithParams conn params reqChange = fmap responseBody $ makeRequest conn
 
  -- TODO: use lens here?
 -- TODO: correctly implement this
-list conn = fmap ((P.map (\(Array a) ->
-                  Torrent (DT.unpack $ fromAesonStr $ a DV.! 0) (DT.unpack $ fromAesonStr $ a DV.! 2)) )
-              . (\(Array a) -> DV.toList a) . fromJust . (Data.HashMap.Strict.lookup "torrents")
-                              . fromJust . (\s -> decode s :: Maybe Object))
-              $ requestWithParams conn [("list", "1")] return
+list conn
+  = fmap ((P.map (\(Array a) ->
+      Torrent (DT.unpack $ fromAesonStr $ a DV.! 0) (DT.unpack $ fromAesonStr $ a DV.! 2)) )
+      . (\(Array a) -> DV.toList a) . fromJust . (Data.HashMap.Strict.lookup "torrents")
+      . fromJust . (\s -> decode s :: Maybe Object))
+      $ requestWithParams conn [("list", "1")] return
 
 pause conn hash = requestWithParams conn [(hashParam, hash), (actionParam, "pause")] return >> return ()
 addUrl conn url = requestWithParams conn [("s", url), (actionParam, "add-url")] return  >> return url
@@ -113,16 +115,26 @@ addFile conn filePath = requestWithParams conn [(actionParam, "add-file")]
                         (formDataBody[partFile "torrent_file" filePath])
                         >>= (return . show)
 
+
 settingToParam (ProxySetType proxyType) = ("proxy.type", show . fromEnum $ proxyType)
 settingToParam (ProxyIP ip) =  ("proxy.proxy", ip)
-settingToParam (ProxyP2P isP2P) = ("proxy.p2p", show . fromBool $ isP2P)
-settingToParam (ProxyPort (PortNumber n)) = ("proxy.port", show n) 
+settingToParam (ProxyP2P isP2P) = ("proxy.p2p", boolSetting isP2P)
+settingToParam (ProxyPort n) = ("proxy.port", show n) 
+settingToParam (DHTNetwork b) = ("dht", boolSetting b) 
+settingToParam (UTP b) = ("bt.transp_disposition", boolSetting b) 
+settingToParam (PeerExchange b) = ("pex", boolSetting b) 
+settingToParam (LocalPeerDiscovery b) = ("lsd", boolSetting b) 
+settingToParam (DHTForNewTorrents b) = ("dht_per_torrent", boolSetting b) 
+settingToParam (UPnP b) = ("upnp", boolSetting b) 
+settingToParam (NATPMP b) = ("natpmp", boolSetting b) 
+settingToParam (RandomizePort b) = ("rand_port_on_start", boolSetting b)
+settingToParam (BindPort n) = ("bind_port", show n)
 
+boolSetting b = show $ (fromBool $ b :: Int) 
 
 fromAesonStr (String s) = s
 
---setProxySettings :: UTorrentConn -> [ProxySetting] -> IO ()
-setSettings conn settings =if' (settings == []) (return ()) $ do
+setSett conn settings =if' (settings == []) (return ()) $ do
   requestWithParams conn (P.reverse $ (actionParam, "setsetting") :
         (join $ P.map ((\(s, v) -> [("s", s), ("v", v)]) . settingToParam) settings)) return
   return ()
@@ -130,25 +142,26 @@ setSettings conn settings =if' (settings == []) (return ()) $ do
 getToken :: String -> String 
 getToken = (\(TagText t) -> t) . (!! 2) . parseTags 
 
-utServerURL :: HostName -> PortNumber -> String
-utServerURL hostName (PortNum p) = "http://" P.++ hostName P.++ ":" P.++ (show p)
+utServerURL :: HostName -> Word16 -> String
+utServerURL hostName p = "http://" P.++ hostName P.++ ":" P.++ (show p)
 
 {-
 DEBUGGING code used for manual testing
 TODO: remove when done
-
+"http://127.0.0.1:8000"
 -}
 runTorrentClientScript = do
-  conn <- uTorentConn "http://127.0.0.1:8080" "admin" ""
+  conn <- makeUTorrentConn "127.0.0.1" 8000  ("admin", "")
   liftIO $ debugM logger "made first connection"
-  torrentFile <-return "/home/dan/test/bigFile.dan.torrent"
---  r2 <- addFile conn torrentFile --addUrl conn archMagnet
---  liftIO $ debugM logger $ "addUrl RESPONSE IS " ++  (show r2)
-  r <- list conn
+  torrentFile <-return "/home/dan/testdata/sample100.torrent"
+--  r2 <- addMagnetLink conn archMagnet
+  r2 <- addTorrentFile conn torrentFile 
+  liftIO $ debugM logger $ "addUrl RESPONSE IS " ++  (show r2)
+  r <- listTorrents conn
   liftIO $ debugM logger $ "list is  " ++  (show r)
 --  liftIO $ debugM logger $ show r
-  --r3 <- setProxySettings conn [ProxySetType Socks4, ProxyIP "127.0.0.69", ProxyPort 6969, ProxyP2P True]
-  --liftIO $ debugM logger $ show $  r3
+  r3 <- setSettings conn [UPnP False, NATPMP False, RandomizePort False, DHTForNewTorrents False, UTP False] -- [ProxySetType Socks4, ProxyIP "127.0.0.1", ProxyPort 6969, ProxyP2P True]
+  liftIO $ debugM logger $ show $  r3
   return ()
 
 archMagnet = "magnet:?xt=urn:btih:67f4bcecdca3e046c4dc759c9e5bfb2c48d277b0&dn=archlinux-2014.03.01-dual.iso&tr=udp://tracker.archlinux.org:6969&tr=http://tracker.archlinux.org:6969/announce"

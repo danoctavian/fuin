@@ -58,7 +58,7 @@ makeDelugeConn hostName portNum (user, pass) = do
   ctx <- liftIO $ initConnectionContext
   conn <- liftIO $ NC.connectTo ctx $ ConnectionParams
                             { connectionHostname  = hostName
-                            , connectionPort      = portNum
+                            , connectionPort      = PortNum portNum
                             , connectionUseSecure = Just (def {settingDisableCertificateValidation = True})
                             , connectionUseSocks  = Nothing
                             } 
@@ -71,7 +71,7 @@ makeDelugeConn hostName portNum (user, pass) = do
                             addTorrentFile = addFile dConn,
                             listTorrents = list dConn,
                             pauseTorrent = pause dConn,
-                            setProxySettings = proxySettings dConn,
+                            setSettings = proxySettings dConn,
                             connectPeer = addPeer
                         }
 

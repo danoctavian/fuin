@@ -16,13 +16,14 @@ import datetime
 # twisted imports
 from twisted.internet import reactor, protocol, defer
 from twisted.python import log
+import sys
 
 
 def getTime():
   return datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d|%H:%M:%S')
 
 
-packCap = open("packCap" + str(getTime()), "w+")
+packCap = sys.stdout #open("packCap" + str(getTime()), "w+")
 
 def printData(data, origin):
   #print getTime()

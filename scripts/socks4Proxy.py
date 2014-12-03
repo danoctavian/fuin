@@ -34,5 +34,5 @@ factory = Factory()
 
 factory.protocol = socksMod.SOCKSv4#socks.SOCKSv4
 
-reactor.listenTCP(9999, factory)
+reactor.listenTCP(1080, factory)
 reactor.run()

@@ -111,25 +111,3 @@ makeClientConn incomingPipe outgoingPipe handleConnection encryption
     -- call the custom connection handler
     handleConnection ((sendMessage sendChan), (receiveMessage receiveChan))
     return ()
-
-
-{-
-init: start reverse proxy
-<no torrent client settings atm>
-give connection handler (some function to call when a connection is made)
-
-in init - need to check that the connection is the type we wanted
-  technique: attempt decryption; if no packets succeed after n packs make it a normal connection
-  for this spawn a thread  to handle this crap
-
-
-  seems simpler than the client
--}
-
-{-
-runFuinServer :: (MonadIO m) => m ()
-runFuinServer = do
-  liftIO $ updateGlobalLogger Server.logger (setLevel DEBUG)
-  liftIO $ debugM Server.logger "running server.."
-  return ()
-  -}
